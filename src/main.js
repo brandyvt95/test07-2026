@@ -25,16 +25,24 @@ import { RenderManager } from './RenderManager.js';
 import { PerformanceMonitor } from './PerformanceMonitor.js';
 import './renderStyles.css';
 
+import { Logger } from './Logger.js';
+import './loadingStyles.css';
+
 async function waitFrame() {
     return new Promise(resolve => requestAnimationFrame(resolve));
 }
 
 async function init() {
+    // Initialize Logger Overlay
+    state.logger = new Logger();
+    state.logger.log("SYSTEM BOOTING...");
+
     while (!window.MODEL_LIST) {
         await waitFrame();
     }
 
     state.models = window.MODEL_LIST || {};
+    state.logger.log("RESOURCE LIST IDENTIFIED.");
 
     state.loader = new LoaderElement();
     state.loader.attach(document.body);
@@ -43,6 +51,7 @@ async function init() {
     state.renderer = new WebGLRenderer({ antialias: true, preserveDrawingBuffer: true });
     state.renderer.toneMapping = ACESFilmicToneMapping;
     document.body.appendChild(state.renderer.domElement);
+    state.logger.log("WEBGL RENDERER INITIALIZED.");
 
     // 2. scene
     state.scene = new Scene();
@@ -99,14 +108,33 @@ async function init() {
     state.perfMonitor = new PerformanceMonitor(state);
 
     updateCameraProjection(params.cameraProjection);
-    updateModel();
-    updateEnvMap();
+
+    // Performance and Asset Load Tracking
+    const loadStartTime = performance.now();
+    state.logger.log("LOADING 3D ASSETS AND ENV-MAP...");
+    await updateModel();
+    await updateEnvMap();
+    const loadTime = ((performance.now() - loadStartTime) / 1000).toFixed(2);
+    state.logger.log(`ASSETS READY IN ${loadTime}s`);
+
+
+    // Start animation loop early so Performance Monitor can start measuring
+    animate();
+
+    state.logger.log("STARTING PERFORMANCE STRESS TEST (2s)...");
+    await new Promise(r => setTimeout(r, 2000));
+
+    const limitInfo = state.perfMonitor.isThrottled ? "Low Performance Detected: Throttling to 30 FPS" : "High Performance Detected: Running at 60 FPS";
+    state.logger.log(limitInfo);
+
     onResize();
 
-    animate();
+    // Final Fade
+    await state.logger.hide();
 
     window.addEventListener('resize', onResize);
 }
+
 
 function animate() {
     requestAnimationFrame(animate);

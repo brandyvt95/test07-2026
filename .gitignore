@@ -1,0 +1,13 @@
+node_modules
+dist
+.env
+.env.*
+.DS_Store
+*.local
+tmp
+.gemini
+.agents
+.cursor
+package-lock.json
+stats.json
+*.log

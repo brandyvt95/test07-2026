@@ -1,0 +1,128 @@
+.loading-overlay {
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100vw;
+    height: 100vh;
+    background: radial-gradient(circle at center, #111 0%, #050505 100%);
+    z-index: 10000;
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    align-items: center;
+    color: white;
+    font-family: 'Inter', 'Outfit', system-ui, -apple-system, sans-serif;
+    transition: opacity 1s cubic-bezier(0.4, 0, 0.2, 1), visibility 1.2s;
+}
+
+.loading-overlay.fade-out {
+    opacity: 0;
+    visibility: hidden;
+}
+
+.loading-content {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 30px;
+    width: 90%;
+    max-width: 600px;
+    padding: 20px;
+}
+
+.loader-spinner {
+    width: 80px;
+    height: 80px;
+    border: 4px solid rgba(255, 255, 255, 0.05);
+    border-top: 4px solid #00f2fe;
+    border-radius: 50%;
+    animation: h-spin 1s cubic-bezier(0.53, 0.21, 0.29, 0.67) infinite;
+    box-shadow: 0 0 30px rgba(0, 242, 254, 0.15);
+}
+
+@keyframes h-spin {
+    0% {
+        transform: rotate(0deg);
+    }
+
+    100% {
+        transform: rotate(360deg);
+    }
+}
+
+.loading-main-text {
+    font-size: 16px;
+    letter-spacing: 6px;
+    text-transform: uppercase;
+    font-weight: 800;
+    background: linear-gradient(90deg, #00f2fe, #4facfe, #00f2fe);
+    background-size: 200% 100%;
+    animation: gradient-flow 3s linear infinite;
+    -webkit-background-clip: text;
+    background-clip: text;
+    -webkit-text-fill-color: transparent;
+    text-shadow: 0 0 10px rgba(0, 242, 254, 0.2);
+}
+
+
+@keyframes gradient-flow {
+    0% {
+        background-position: 0% 50%;
+    }
+
+    100% {
+        background-position: 200% 50%;
+    }
+}
+
+.log-container {
+    width: 100%;
+    height: 180px;
+    background: rgba(0, 0, 0, 0.6);
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    border-radius: 12px;
+    padding: 20px;
+    font-family: 'JetBrains Mono', 'Monaco', 'Courier New', monospace;
+    font-size: 13px;
+    overflow-y: auto;
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+    backdrop-filter: blur(10px);
+}
+
+.log-container::-webkit-scrollbar {
+    width: 5px;
+}
+
+.log-container::-webkit-scrollbar-thumb {
+    background: rgba(255, 255, 255, 0.1);
+    border-radius: 10px;
+}
+
+.log-entry {
+    display: flex;
+    gap: 12px;
+    opacity: 0;
+    transform: translateX(-10px);
+    animation: log-appear 0.4s ease-out forwards;
+}
+
+@keyframes log-appear {
+    to {
+        opacity: 1;
+        transform: translateX(0);
+    }
+}
+
+.timestamp {
+    color: #4facfe;
+    font-weight: 500;
+    flex-shrink: 0;
+}
+
+.msg {
+    color: #eee;
+    line-height: 1.4;
+    word-break: break-all;
+}

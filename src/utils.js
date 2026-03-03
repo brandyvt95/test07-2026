@@ -41,8 +41,8 @@ export function updateCameraProjection(cameraProjection) {
 }
 
 export function updateEnvMap() {
-    new HDRLoader()
-        .load(params.envMap, texture => {
+    return new Promise((resolve) => {
+        new HDRLoader().load(params.envMap, (texture) => {
             if (state.scene.environment) {
                 state.scene.environment.dispose();
             }
@@ -50,8 +50,11 @@ export function updateEnvMap() {
             state.scene.environment = texture;
             state.ptManager.updateEnvironment();
             onParamsChange();
+            resolve(texture);
         });
+    });
 }
+
 
 export function onParamsChange() {
     const { ptManager, floorPlane, scene, renderer, gradientMap } = state;
