@@ -1,0 +1,244 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"/>
+<title>Portal Pro - Anti Flicker</title>
+<style>
+  body { margin:0; overflow:hidden; background: #000; }
+  #hint {
+    position:absolute; bottom:20px; left:50%; transform:translateX(-50%);
+    color:#fff; font-family:monospace; background:rgba(0,0,0,0.8);
+    padding:12px 24px; border-radius:10px; pointer-events:none;
+    border: 1px solid #00ffff; font-size: 13px; z-index: 100;
+  }
+  .label {
+    position: absolute; bottom: 175px; color: #00ffff; font-family: monospace;
+    font-size: 11px; background: rgba(0,0,0,0.7); padding: 2px 8px; pointer-events: none;
+  }
+</style>
+<script type="importmap">
+{"imports":{"three":"https://cdn.jsdelivr.net/npm/three@0.161.0/build/three.module.js","three/addons/":"https://cdn.jsdelivr.net/npm/three@0.161.0/examples/jsm/"}}
+</script>
+</head>
+<body>
+<div id="hint"><b>FIXED: ANTI-FLICKER</b> · W/A/S/D di chuyển · Debug FBO chuẩn Ratio</div>
+<div class="label" style="left: 10px;">TOP-DOWN (Check Pos)</div>
+<div class="label" style="left: calc(33% + 10px);">OTHER WORLD RAW</div>
+<div class="label" style="left: calc(66% + 10px);">STENCIL MASK</div>
+
+<script type="module">
+import * as THREE from 'three'
+import { PointerLockControls } from 'three/addons/controls/PointerLockControls.js'
+
+// ── 1. RENDERER ──────────────────────────────────────────────────────────────
+const renderer = new THREE.WebGLRenderer({ 
+    antialias: true, 
+    stencil: true,
+    logarithmicDepthBuffer: true // Khử nhiễu chiều sâu tuyệt đối
+})
+renderer.setPixelRatio(window.devicePixelRatio)
+renderer.setSize(innerWidth, innerHeight)
+renderer.autoClear = false 
+renderer.localClippingEnabled = true
+document.body.appendChild(renderer.domElement)
+
+const camera = new THREE.PerspectiveCamera(75, innerWidth/innerHeight, 0.01, 1000)
+camera.position.set(0, 1.6, 5)
+
+const debugTopCam = new THREE.OrthographicCamera(-15, 15, 10, -10, 1, 100)
+debugTopCam.position.set(0, 20, 0)
+debugTopCam.lookAt(0, 0, 0)
+
+const controls = new PointerLockControls(camera, renderer.domElement)
+document.body.addEventListener('click', () => controls.lock())
+
+const keys = {}
+document.addEventListener('keydown', e => keys[e.code] = true)
+document.addEventListener('keyup', e => keys[e.code] = false)
+
+// ── 2. WORLDS ────────────────────────────────────────────────────────────────
+function createWorld(color, objectColor, isKnot) {
+  const scene = new THREE.Scene()
+  const sky = new THREE.Mesh(
+    new THREE.SphereGeometry(300, 32, 32),
+    new THREE.MeshBasicMaterial({ color: color, side: THREE.BackSide })
+  )
+  sky.userData.isSky = true
+  scene.add(sky)
+  scene.add(new THREE.GridHelper(100, 50, 0xffffff, 0x444444))
+
+  const geo = isKnot ? new THREE.TorusKnotGeometry(0.5, 0.2) : new THREE.BoxGeometry(1,1,1)
+  for(let i=0; i<40; i++) {
+    const m = new THREE.Mesh(geo, new THREE.MeshStandardMaterial({color: objectColor}))
+    m.position.set(Math.random()*40-20, 1, Math.random()*80-40)
+    scene.add(m)
+  }
+  scene.add(new THREE.AmbientLight(0xffffff, 1.5))
+  return scene
+}
+
+const worldA = createWorld(0x020205, 0xff4444, false) 
+const worldB = createWorld(0x1a2a6c, 0x00ffcc, true)  
+
+// ── 3. PORTAL MASK ───────────────────────────────────────────────────────────
+const PORTAL_W = 3.5, PORTAL_H = 4.5
+const portalPos = new THREE.Vector3(0, PORTAL_H/2, 0)
+
+const maskMat = new THREE.MeshBasicMaterial({ colorWrite: false, depthWrite: false, side: THREE.DoubleSide })
+const portalMask = new THREE.Mesh(new THREE.PlaneGeometry(PORTAL_W, PORTAL_H), maskMat)
+portalMask.position.copy(portalPos)
+
+const visibleMaskMat = new THREE.MeshBasicMaterial({ color: 0x00ffff, wireframe: true })
+
+const frame = new THREE.Mesh(
+  new THREE.BoxGeometry(PORTAL_W + 0.1, PORTAL_H + 0.1, 0.1),
+  new THREE.MeshStandardMaterial({ color: 0x00ffff, emissive: 0x00ffff, emissiveIntensity: 2 })
+)
+frame.position.copy(portalPos)
+worldA.add(frame)
+worldB.add(frame.clone())
+
+// Clipping planes: Offset nhỏ để tránh Z-fighting tuyệt đối
+const clipA = new THREE.Plane(new THREE.Vector3(0, 0, 1), 0.02)
+const clipB = new THREE.Plane(new THREE.Vector3(0, 0, -1), 0.02)
+
+// ── 4. RENDER LOGIC ──────────────────────────────────────────────────────────
+let inWorldB = false
+let isTransitioning = false
+
+function render() {
+  const gl = renderer.getContext()
+  const thisWorld = inWorldB ? worldB : worldA
+  const otherWorld = inWorldB ? worldA : worldB
+  
+  // Logic clipping plane đảo ngược chuẩn xác
+  const otherClip = inWorldB ? clipA : clipB
+  const thisClip = inWorldB ? clipB : clipA
+
+  renderer.setViewport(0, 0, innerWidth, innerHeight)
+  renderer.setScissorTest(false)
+  renderer.clear(true, true, true)
+
+  // BƯỚC 1: Vẽ Stencil Mask
+  gl.enable(gl.STENCIL_TEST)
+  gl.stencilOp(gl.KEEP, gl.KEEP, gl.REPLACE)
+  gl.stencilFunc(gl.ALWAYS, 1, 0xff)
+  gl.stencilMask(0xff)
+  renderer.render(portalMask, camera)
+
+  // BƯỚC 2: Vẽ "Thế giới bên kia" (Stencil == 1)
+  gl.stencilFunc(gl.EQUAL, 1, 0xff)
+  gl.stencilMask(0x00)
+  renderer.clearDepth()
+  
+  otherWorld.traverse(obj => { 
+    if(obj.isMesh && obj !== portalMask) {
+        obj.material.clippingPlanes = obj.userData.isSky ? [] : [otherClip]
+    }
+  })
+  renderer.render(otherWorld, camera)
+
+  // BƯỚC 3: Vẽ "Thế giới hiện tại" (Stencil != 1)
+  gl.stencilFunc(gl.NOTEQUAL, 1, 0xff)
+  renderer.clearDepth()
+  
+  thisWorld.traverse(obj => { 
+    if(obj.isMesh) {
+        obj.material.clippingPlanes = obj.userData.isSky ? [] : [thisClip]
+    }
+  })
+  renderer.render(thisWorld, camera)
+
+  gl.disable(gl.STENCIL_TEST)
+  
+  // --- DEBUG VIEWS ---
+  renderDebug(otherWorld, thisWorld, otherClip)
+}
+
+function renderDebug(otherWorld, currentWorld, otherClip) {
+  const gap = 10
+  const debugW = (innerWidth - gap * 4) / 3
+  const debugH = 150
+  const debugAspect = debugW / debugH
+
+  renderer.setScissorTest(true)
+
+  // Ô 1: TOP-DOWN
+  drawDebugView(gap, gap, debugW, debugH, () => {
+    const size = 15
+    debugTopCam.left = -size * debugAspect; debugTopCam.right = size * debugAspect
+    debugTopCam.updateProjectionMatrix()
+    renderer.render(currentWorld, debugTopCam)
+    const marker = new THREE.Mesh(new THREE.BoxGeometry(1, 1, 2), new THREE.MeshBasicMaterial({color: 0xffff00}))
+    marker.position.copy(camera.position); marker.rotation.copy(camera.rotation)
+    renderer.render(marker, debugTopCam)
+  })
+
+  // Ô 2: OTHER WORLD RAW (Correct Ratio)
+  drawDebugView(debugW + gap * 2, gap, debugW, debugH, () => {
+    const oldAspect = camera.aspect
+    camera.aspect = debugAspect
+    camera.updateProjectionMatrix()
+    otherWorld.traverse(obj => { if(obj.isMesh) obj.material.clippingPlanes = [] })
+    renderer.render(otherWorld, camera)
+    camera.aspect = oldAspect
+    camera.updateProjectionMatrix()
+  })
+
+  // Ô 3: MASK SHAPE
+  drawDebugView((debugW + gap) * 2 + gap, gap, debugW, debugH, () => {
+    const oldMat = portalMask.material
+    portalMask.material = visibleMaskMat
+    renderer.render(portalMask, camera)
+    portalMask.material = oldMat
+  })
+  renderer.setScissorTest(false)
+}
+
+function drawDebugView(x, y, w, h, cb) {
+  renderer.setViewport(x, y, w, h); renderer.setScissor(x, y, w, h)
+  renderer.clear(true, true, false); cb()
+}
+
+// ── 5. UPDATE (VẬN HÀNH) ──────────────────────────────────────────────────────
+let prevZ = camera.position.z
+
+function update() {
+  const speed = 0.1
+  if (keys['KeyW']) controls.moveForward(speed)
+  if (keys['KeyS']) controls.moveForward(-speed)
+  if (keys['KeyA']) controls.moveRight(-speed)
+  if (keys['KeyD']) controls.moveRight(speed)
+
+  const pos = camera.position
+  const halfW = PORTAL_W / 2
+  
+  // Thuật toán phát hiện xuyên cổng chuẩn: Dựa trên Frame-Cross
+  if (Math.abs(pos.x) < halfW && pos.y < PORTAL_H) {
+    // Nếu frame trước đang ở phía dương, frame này ở phía âm (hoặc ngược lại)
+    if (prevZ > 0 && pos.z <= 0 && !inWorldB) {
+      inWorldB = true
+      pos.z = -0.1 // Đẩy nhẹ để tránh trigger ngược ngay lập tức
+    } else if (prevZ < 0 && pos.z >= 0 && inWorldB) {
+      inWorldB = false
+      pos.z = 0.1
+    }
+  }
+  prevZ = pos.z
+}
+
+function animate() {
+  requestAnimationFrame(animate)
+  update()
+  render()
+}
+animate()
+
+window.addEventListener('resize', () => {
+  renderer.setSize(innerWidth, innerHeight)
+  camera.aspect = innerWidth / innerHeight
+  camera.updateProjectionMatrix()
+})
+</script>
+</body>
+</html>
