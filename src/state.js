@@ -14,4 +14,8 @@ export const state = {
     loader: null,
     models: {},
     modelProcessor: null,
+    minimapManager: null,
+    minimapGroup: null,
 };
+
+

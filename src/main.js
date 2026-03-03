@@ -8,6 +8,7 @@ import {
     PerspectiveCamera,
     OrthographicCamera,
     WebGLRenderer,
+    Group,
 } from 'three';
 import Stats from 'three/examples/jsm/libs/stats.module.js';
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
@@ -24,6 +25,7 @@ import { ModelProcessor } from './ModelProcessor.js';
 import { RenderManager } from './RenderManager.js';
 import { PerformanceMonitor } from './PerformanceMonitor.js';
 import { SelectionManager } from './SelectionManager.js';
+import { MinimapManager } from './MinimapManager.js';
 import './renderStyles.css';
 
 import { Logger } from './Logger.js';
@@ -80,6 +82,7 @@ async function init() {
 
     // controls
     state.controls = new OrbitControls(state.perspectiveCamera, state.renderer.domElement);
+    state.controls.enableDamping = params.enableDamping; // Mặc định bật Lerp
     state.controls.addEventListener('change', () => {
         state.ptManager.updateCamera();
     });
@@ -108,6 +111,9 @@ async function init() {
     state.renderManager = new RenderManager();
     state.perfMonitor = new PerformanceMonitor(state);
     state.selectionManager = new SelectionManager(state);
+    state.minimapManager = new MinimapManager();
+    state.minimapGroup = new Group();
+    state.scene.add(state.minimapGroup);
 
     updateCameraProjection(params.cameraProjection);
 
@@ -116,6 +122,8 @@ async function init() {
     const loadStartTime = performance.now();
     state.logger.log("LOADING 3D ASSETS AND ENV-MAP...");
     await updateModel();
+    if (state.selectionManager) state.selectionManager.setupModel(state.model);
+    if (state.minimapManager) state.minimapManager.setupMinimapMesh(state.model);
     await updateEnvMap();
     const loadTime = ((performance.now() - loadStartTime) / 1000).toFixed(2);
     state.logger.log(`ASSETS READY IN ${loadTime}s`);
@@ -142,12 +150,19 @@ async function init() {
 function animate() {
     requestAnimationFrame(animate);
 
+    // Update FBO Minimap Stage (Must run before main render)
+    if (state.minimapManager) state.minimapManager.render();
+
     state.stats.update();
+    state.controls.update(); // Bắt buộc để Damping hoạt động
 
     if (!state.model || !state.ptManager) return;
 
     // Update performance monitor
     state.perfMonitor.update();
+
+    // Update selection/interaction logic (Camera transitions)
+    if (state.selectionManager) state.selectionManager.update();
 
     // Check if we should render this frame (Performance Throttling)
     if (!state.perfMonitor.shouldRender()) return;

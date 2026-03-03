@@ -22,7 +22,8 @@ export const params = {
 
     cameraProjection: 'Perspective',
 
-    backgroundType: 'Gradient',
+    backgroundType: 'Environment',
+
     bgGradientTop: '#111111',
     bgGradientBottom: '#000000',
     backgroundBlur: 0.0,
@@ -42,12 +43,41 @@ export const params = {
     showBoundingBoxes: false,
     arrangeInRow: false,
 
+    // Performance Settings
+    fpsLimitMode: 'Auto',
+    enableDamping: true, // Orbit Lerp (Damping)
+
+
+
     // Raycast Mode
-    raycastMode: 'BVH', // Options: 'BVH', 'Standard'
+    raycastMode: 'Standard', // Options: 'Off', 'BVH', 'Standard'
+
+
 
     // Standard Render Config
     standardResolutionScale: 1.0,
     hqSamples: 500,
+
+    // Minimap Config (FBO)
+    minimap: {
+        enabled: true,
+        posX: 3,
+        posY: 3,
+        posZ: 3,
+        targetX: 0,
+        targetY: 0,
+        targetZ: 0,
+        fov: 20,
+        flipX: false,
+        flipY: false,
+        resolution: 512
+    },
+
+
+
+
+
+
 
     // Snapshot Configs (Managed by GUI)
     snapshots: {

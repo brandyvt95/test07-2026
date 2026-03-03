@@ -17,10 +17,21 @@ export function buildGui() {
 
     // 1. Selection Settings
     const selectionFolder = state.gui.addFolder('Selection System');
-    selectionFolder.add(params, 'raycastMode', ['BVH', 'Standard']).name('Raycast Engine');
+    selectionFolder.add(params, 'raycastMode', ['Off', 'BVH', 'Standard']).name('Raycast Engine');
     selectionFolder.close();
 
-    // 2. Standard Render (Rasterization)
+
+    // 2. Performance & System
+    const perfFolder = state.gui.addFolder('Performance & System');
+    perfFolder.add(params, 'fpsLimitMode', ['Auto', '60 FPS', '30 FPS']).name('FPS Limit');
+    perfFolder.add(params, 'enableDamping').name('Orbit Smoothing (Lerp)').onChange(v => {
+        state.controls.enableDamping = v;
+    });
+    perfFolder.close();
+
+
+    // 3. Standard Render (Rasterization)
+
     const standardFolder = state.gui.addFolder('Standard Render (WebGL)');
     standardFolder.add(params, 'acesToneMapping').name('ACES ToneMapping').onChange(v => {
         state.renderer.toneMapping = v ? ACESFilmicToneMapping : NoToneMapping;
@@ -49,6 +60,24 @@ export function buildGui() {
         folder.close();
     });
     snapshotFolder.close();
+
+    // 5. Minimap Configuration
+    const minimapFolder = state.gui.addFolder('Minimap (FBO)');
+    minimapFolder.add(params.minimap, 'enabled').name('Enable Minimap');
+    minimapFolder.add(params.minimap, 'posX', -50, 50).name('Camera X');
+    minimapFolder.add(params.minimap, 'posY', 1, 100).name('Camera Y');
+    minimapFolder.add(params.minimap, 'posZ', -50, 50).name('Camera Z');
+    minimapFolder.add(params.minimap, 'targetX', -50, 50).name('Target X');
+    minimapFolder.add(params.minimap, 'targetY', -50, 50).name('Target Y');
+    minimapFolder.add(params.minimap, 'targetZ', -50, 50).name('Target Z');
+    minimapFolder.add(params.minimap, 'fov', 1, 120).name('Perspective FOV');
+    minimapFolder.add(params.minimap, 'flipX').name('Flip Horizontal');
+    minimapFolder.add(params.minimap, 'flipY').name('Flip Vertical');
+    minimapFolder.close();
+
+
+
+
 
 
 

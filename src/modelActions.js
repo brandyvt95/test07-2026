@@ -1,4 +1,5 @@
-import { Box3, Sphere } from 'three';
+import { Box3, Sphere, Vector3 } from 'three';
+
 import { params } from './params.js';
 import { state } from './state.js';
 import { loadModel, convertOpacityToTransmission } from './loader.js';
@@ -71,18 +72,38 @@ export async function updateModel() {
 
     state.model.scale.setScalar(1 / sphere.radius);
     state.model.position.multiplyScalar(1 / sphere.radius);
-    box.setFromObject(state.model);
-    state.floorPlane.position.y = box.min.y;
 
+    // Recalculate box after scale
+    box.setFromObject(state.model);
+
+    // Center locally and ground it (BOTTOM at Y=0)
+    const center = new Vector3();
+    box.getCenter(center);
+    state.model.position.x -= center.x;
+    state.model.position.z -= center.z;
+    state.model.position.y -= box.min.y; // Lowest point at 0
+
+    // Add the model to the scene normally
     state.scene.add(state.model);
 
-    // Apply model processing (arrange meshes in row, bounding boxes)
-    if (state.modelProcessor) {
-        state.modelProcessor.process(state.model, {
-            showBoxes: params.showBoundingBoxes,
-            arrangeInRow: params.arrangeInRow,
-        });
+    // Filter and set Layer 1 for Car meshes WITHOUT moving them (to preserve transforms/scale)
+    state.model.traverse(child => {
+        if (child.isMesh) {
+            const name = child.name.toLowerCase();
+            const isStall = name.includes('gianhang') || name.includes('sanpham');
+            if (!isStall) {
+                child.layers.enable(1); // Seen by Minimap Camera
+            }
+        }
+    });
+
+    // Initialize Selection Manager for this model (Dummies, etc)
+    if (state.selectionManager) {
+        state.selectionManager.setupModel(state.model);
     }
+
+
+
 
     await state.ptManager.setSceneAsync(state.scene, state.activeCamera, {
         onProgress: v => state.loader.setPercentage(0.5 + 0.5 * v),
