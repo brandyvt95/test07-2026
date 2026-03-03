@@ -23,6 +23,7 @@ import { updateModel } from './modelActions.js';
 import { ModelProcessor } from './ModelProcessor.js';
 import { RenderManager } from './RenderManager.js';
 import { PerformanceMonitor } from './PerformanceMonitor.js';
+import { SelectionManager } from './SelectionManager.js';
 import './renderStyles.css';
 
 import { Logger } from './Logger.js';
@@ -106,8 +107,10 @@ async function init() {
 
     state.renderManager = new RenderManager();
     state.perfMonitor = new PerformanceMonitor(state);
+    state.selectionManager = new SelectionManager(state);
 
     updateCameraProjection(params.cameraProjection);
+
 
     // Performance and Asset Load Tracking
     const loadStartTime = performance.now();

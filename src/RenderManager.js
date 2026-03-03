@@ -4,17 +4,12 @@ import { onParamsChange } from './utils.js';
 
 export class RenderManager {
     constructor() {
-        this.configs = {
-            low: { samples: 16, bounces: 3, scale: 0.5 },
-            med: { samples: 64, bounces: 5, scale: 0.75 },
-            high: { samples: 256, bounces: 10, scale: 1.0 }
-        };
         this.isRendering = false;
         this.createUI();
     }
 
     createUI() {
-        // Overlay Buttons
+        // Overlay Buttons (RE-ADDED)
         const overlay = document.createElement('div');
         overlay.className = 'render-overlay';
         overlay.innerHTML = `
@@ -30,6 +25,8 @@ export class RenderManager {
         });
 
         // Progress text + Cancel button
+
+
         this.progressEl = document.createElement('div');
         this.progressEl.className = 'render-progress';
         this.progressEl.innerHTML = `
@@ -76,18 +73,26 @@ export class RenderManager {
 
     async startRender(level) {
         if (this.isRendering) return;
+
+        const config = params.snapshots[level];
+        if (!config) {
+            console.error(`Invalid render level: ${level}`);
+            return;
+        }
+
         this.isRendering = true;
         this.shouldAbort = false;
 
-        const config = this.configs[level];
         const originalParams = { ...params };
         const ptManager = state.ptManager;
 
         // Step 1: Inject high quality params into the MAIN LOOP
-        params.renderScale = config.scale;
+        params.renderScale = config.renderScale;
         params.bounces = config.bounces;
         params.enable = true;
         params.pause = false;
+
+
 
         // Critical: Update tracer state immediately
         ptManager.renderScale = params.renderScale;

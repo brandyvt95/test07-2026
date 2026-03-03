@@ -42,7 +42,24 @@ export const params = {
     showBoundingBoxes: false,
     arrangeInRow: false,
 
+    // Raycast Mode
+    raycastMode: 'BVH', // Options: 'BVH', 'Standard'
+
+    // Standard Render Config
+    standardResolutionScale: 1.0,
+    hqSamples: 500,
+
+    // Snapshot Configs (Managed by GUI)
+    snapshots: {
+        low: { samples: 16, bounces: 3, renderScale: 0.5 },
+        med: { samples: 64, bounces: 5, renderScale: 0.75 },
+        high: { samples: 256, bounces: 10, renderScale: 1.0 }
+    },
+
+
     ...getScaledSettings(),
 };
+
+
 
 export const orthoWidth = 2;

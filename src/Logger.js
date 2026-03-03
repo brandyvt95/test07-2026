@@ -1,8 +1,13 @@
 
 export class Logger {
     constructor() {
+        // Clear previous overlay if exists
+        const existing = document.getElementById('loading-overlay');
+        if (existing) existing.remove();
+
         this.overlay = document.createElement('div');
         this.overlay.id = 'loading-overlay';
+
         this.overlay.className = 'loading-overlay';
         this.overlay.innerHTML = `
             <div class="loading-content">
