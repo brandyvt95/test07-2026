@@ -1,0 +1,48 @@
+import { getScaledSettings } from '../utils/getScaledSettings.js';
+
+export const envMaps = {
+    'Aristea Wreck Puresky': 'https://raw.githubusercontent.com/gkjohnson/3d-demo-data/master/hdri/aristea_wreck_puresky_2k.hdr',
+};
+
+export const params = {
+    multipleImportanceSampling: true,
+    acesToneMapping: true,
+    renderScale: 1 / window.devicePixelRatio,
+    tiles: 1,
+
+    model: '',
+
+    envMap: envMaps['Aristea Wreck Puresky'],
+
+    gradientTop: '#bfd8ff',
+    gradientBottom: '#ffffff',
+
+    environmentIntensity: 1.0,
+    environmentRotation: 0,
+
+    cameraProjection: 'Perspective',
+
+    backgroundType: 'Gradient',
+    bgGradientTop: '#111111',
+    bgGradientBottom: '#000000',
+    backgroundBlur: 0.0,
+    transparentBackground: false,
+    checkerboardTransparency: true,
+
+    enable: false,
+    bounces: 5,
+    filterGlossyFactor: 0.5,
+    pause: false,
+
+    floorColor: '#111111',
+    floorOpacity: 1.0,
+    floorRoughness: 0.2,
+    floorMetalness: 0.2,
+
+    showBoundingBoxes: false,
+    arrangeInRow: false,
+
+    ...getScaledSettings(),
+};
+
+export const orthoWidth = 2;

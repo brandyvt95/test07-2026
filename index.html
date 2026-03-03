@@ -1,0 +1,59 @@
+<!DOCTYPE html>
+<html>
+
+<head>
+	<title>PBRtracing</title>
+	<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+
+	<style>
+		html,
+		body {
+			margin: 0;
+			padding: 0;
+			background-color: #111;
+			overflow: hidden;
+		}
+
+		.checkerboard {
+			background-image:
+				linear-gradient(45deg, #222 25%, transparent 25%),
+				linear-gradient(-45deg, #222 25%, transparent 25%),
+				linear-gradient(45deg, transparent 75%, #222 75%),
+				linear-gradient(-45deg, transparent 75%, #222 75%);
+			background-size: 20px 20px;
+			background-position: 0 0, 0 10px, 10px -10px, -10px 0px;
+		}
+	</style>
+
+</head>
+
+<body>
+	<script type="module">
+		import { MeshPhysicalMaterial, Color, DoubleSide, Mesh, CylinderGeometry, Box3 } from 'three';
+		import { FogVolumeMaterial } from 'three-gpu-pathtracer';
+
+		window.MODEL_LIST = {
+			'M2020 Rover': {
+				url: '/src/assets/lambor.glb',
+				credit: 'Model credit NASA / JPL-Caltech',
+				postProcess: (model) => {
+					model.traverse(c => {
+						if (c.isMesh) {
+							// Xử lý kính (giữ nguyên logic cũ nếu cần hoặc tùy biến thêm)
+							if (c.material && (c.material.isMeshStandardMaterial || c.material.isMeshPhysicalMaterial)) {
+								// Nếu metalness là 0 và roughness là 1 (giá trị mặc định nễu ko set trong glb)
+								if (c.material.metalness === 0 && c.material.roughness === 1) {
+									// c.material.metalness = 0.9;
+									// c.material.roughness = 0.1;
+								}
+							}
+						}
+					});
+				}
+			},
+		};
+	</script>
+	<script src="./src/main.js" type="module" defer></script>
+</body>
+
+</html>
