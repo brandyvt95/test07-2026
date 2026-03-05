@@ -8,10 +8,18 @@ import {
     PerspectiveCamera,
     OrthographicCamera,
     WebGLRenderer,
+    Vector3,
     Group,
+    AmbientLight,
+    DirectionalLight,
+    Box3,
 } from 'three';
 import Stats from 'three/examples/jsm/libs/stats.module.js';
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
+import { Controls } from './Controls.js';
+import { BillboardHUD } from './BillboardHUD.js';
+import { RayInteraction } from './RayInteraction.js';
+import { NavigationUI } from './NavigationUI.js';
 import { GradientEquirectTexture } from 'three-gpu-pathtracer';
 import { PathTracingManager } from './PathTracingManager.js';
 
@@ -20,12 +28,9 @@ import { state } from './state.js';
 import { LoaderElement } from '../utils/LoaderElement.js';
 import { generateRadialFloorTexture } from '../utils/generateRadialFloorTexture.js';
 import { onResize, updateCameraProjection, updateEnvMap } from './utils.js';
-import { updateModel } from './modelActions.js';
-import { ModelProcessor } from './ModelProcessor.js';
+import { processGlb } from './GlbProcessor.js';
 import { RenderManager } from './RenderManager.js';
 import { PerformanceMonitor } from './PerformanceMonitor.js';
-import { SelectionManager } from './SelectionManager.js';
-import { MinimapManager } from './MinimapManager.js';
 import './renderStyles.css';
 
 import { Logger } from './Logger.js';
@@ -40,18 +45,25 @@ async function init() {
     state.logger = new Logger();
     state.logger.log("SYSTEM BOOTING...");
 
-    while (!window.MODEL_LIST) {
-        await waitFrame();
+    // Fetch the scenegraph config
+    try {
+        const response = await fetch('./src/scenegraph.json');
+        const config = await response.json();
+        state.models = config.models.reduce((acc, m) => {
+            acc[m.id || m.name] = m;
+            return acc;
+        }, {});
+        state.logger.log("SCENEGRAPH CONFIG LOADED.");
+    } catch (err) {
+        state.logger.log("FAILED TO LOAD SCENEGRAPH JSON: " + err.message);
+        state.models = window.MODEL_LIST || {};
     }
-
-    state.models = window.MODEL_LIST || {};
-    state.logger.log("RESOURCE LIST IDENTIFIED.");
 
     state.loader = new LoaderElement();
     state.loader.attach(document.body);
 
     // 1. renderer
-    state.renderer = new WebGLRenderer({ antialias: true, preserveDrawingBuffer: true });
+    state.renderer = new WebGLRenderer({ antialias: true, preserveDrawingBuffer: true, stencil: true });
     state.renderer.toneMapping = ACESFilmicToneMapping;
     document.body.appendChild(state.renderer.domElement);
     state.logger.log("WEBGL RENDERER INITIALIZED.");
@@ -59,16 +71,29 @@ async function init() {
     // 2. scene
     state.scene = new Scene();
 
-    // 3. Initial processor
-    state.modelProcessor = new ModelProcessor(state.scene);
+    // Standard Lighting
+    const ambient = new AmbientLight(0xffffff, 1.5);
+    ambient.layers.enable(1); // Enable for HUD
+    state.scene.add(ambient);
+
+    const sun = new DirectionalLight(0xffffff, 4.0);
+    sun.position.set(5, 10, 7);
+    sun.layers.enable(1); // Enable for HUD
+    state.scene.add(sun);
+
+    const fill = new DirectionalLight(0xffffff, 2.0);
+    fill.position.set(-5, 0, -5);
+    fill.layers.enable(1); // Enable for HUD
+    state.scene.add(fill);
 
     // 4. path tracer manager
     state.ptManager = new PathTracingManager(state.renderer);
 
     // camera
     const aspect = window.innerWidth / window.innerHeight;
-    state.perspectiveCamera = new PerspectiveCamera(60, aspect, 0.025, 500);
+    state.perspectiveCamera = new PerspectiveCamera(60, aspect, 0.025, 50000);
     state.perspectiveCamera.position.set(- 1, 0.25, 1);
+    state.scene.add(state.perspectiveCamera); // Added to allow camera-space children (HUD)
 
     const orthoHeight = orthoWidth / aspect;
     state.orthoCamera = new OrthographicCamera(orthoWidth / - 2, orthoWidth / 2, orthoHeight / 2, orthoHeight / - 2, 0, 100);
@@ -80,12 +105,13 @@ async function init() {
     state.gradientMap.bottomColor.set(params.bgGradientBottom);
     state.gradientMap.update();
 
-    // controls
-    state.controls = new OrbitControls(state.perspectiveCamera, state.renderer.domElement);
-    state.controls.enableDamping = params.enableDamping; // Mặc định bật Lerp
-    state.controls.addEventListener('change', () => {
-        state.ptManager.updateCamera();
-    });
+    // Interaction and HUD system
+    state.controls = new Controls(state.perspectiveCamera, state.renderer.domElement);
+    state.billboard = new BillboardHUD(state.perspectiveCamera);
+    state.ray = new RayInteraction(state.perspectiveCamera, state.renderer.domElement);
+    state.nav = new NavigationUI();
+
+
 
     state.scene.background = state.gradientMap;
 
@@ -103,6 +129,7 @@ async function init() {
     );
     state.floorPlane.scale.setScalar(5);
     state.floorPlane.rotation.x = - Math.PI / 2;
+    state.floorPlane.layers.enable(1); // Enable for HUD
     state.scene.add(state.floorPlane);
 
     state.stats = new Stats();
@@ -110,10 +137,6 @@ async function init() {
 
     state.renderManager = new RenderManager();
     state.perfMonitor = new PerformanceMonitor(state);
-    state.selectionManager = new SelectionManager(state);
-    state.minimapManager = new MinimapManager();
-    state.minimapGroup = new Group();
-    state.scene.add(state.minimapGroup);
 
     updateCameraProjection(params.cameraProjection);
 
@@ -121,9 +144,8 @@ async function init() {
     // Performance and Asset Load Tracking
     const loadStartTime = performance.now();
     state.logger.log("LOADING 3D ASSETS AND ENV-MAP...");
-    await updateModel();
-    if (state.selectionManager) state.selectionManager.setupModel(state.model);
-    if (state.minimapManager) state.minimapManager.setupMinimapMesh(state.model);
+    await processGlb();
+    if (state.nav) state.nav.refresh();
     await updateEnvMap();
     const loadTime = ((performance.now() - loadStartTime) / 1000).toFixed(2);
     state.logger.log(`ASSETS READY IN ${loadTime}s`);
@@ -150,32 +172,26 @@ async function init() {
 function animate() {
     requestAnimationFrame(animate);
 
-    // Update FBO Minimap Stage (Must run before main render)
-    if (state.minimapManager) state.minimapManager.render();
+    // ── Update Controls (Lerp) ──────────────────────────────────────────────
+    if (state.controls?.update) {
+        state.controls.update(0.016);
+    }
 
-    state.stats.update();
-    state.controls.update(); // Bắt buộc để Damping hoạt động
+    if (state.billboard?.update) {
+        state.billboard.update(performance.now());
+    }
 
-    if (!state.model || !state.ptManager) return;
+
 
     // Update performance monitor
     state.perfMonitor.update();
+    state.stats.update();
 
-    // Update selection/interaction logic (Camera transitions)
-    if (state.selectionManager) state.selectionManager.update();
-
-    // Check if we should render this frame (Performance Throttling)
     if (!state.perfMonitor.shouldRender()) return;
 
-    if (params.enable) {
-        if (!params.pause || state.ptManager.samples < 1) {
-            state.ptManager.renderSample();
-        }
-    } else {
-        state.renderer.render(state.scene, state.activeCamera);
-    }
-
-    state.loader.setSamples(state.ptManager.samples, state.ptManager.isCompiling);
+    // Standard Render Path (PT Suspended)
+    state.renderer.autoClear = true;
+    state.renderer.render(state.scene, state.perspectiveCamera || state.activeCamera);
 }
 
 

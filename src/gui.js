@@ -1,10 +1,8 @@
-import { ACESFilmicToneMapping, NoToneMapping } from 'three';
 import { GUI } from 'three/examples/jsm/libs/lil-gui.module.min.js';
 import { params, envMaps } from './params.js';
 import { state } from './state.js';
-import { onParamsChange, updateEnvMap, updateCameraProjection } from './utils.js';
-import { SceneGraph } from './SceneGraph.js';
-import { updateModel } from './modelActions.js';
+import { onParamsChange, updateEnvMap } from './utils.js';
+import { processGlb } from './GlbProcessor.js';
 
 export function buildGui() {
     if (state.gui) {
@@ -15,29 +13,10 @@ export function buildGui() {
 
     // No model selection since we only have one model
 
-    // 1. Selection Settings
-    const selectionFolder = state.gui.addFolder('Selection System');
-    selectionFolder.add(params, 'raycastMode', ['Off', 'BVH', 'Standard']).name('Raycast Engine');
-    selectionFolder.close();
-
-
-    // 2. Performance & System
-    const perfFolder = state.gui.addFolder('Performance & System');
-    perfFolder.add(params, 'fpsLimitMode', ['Auto', '60 FPS', '30 FPS']).name('FPS Limit');
-    perfFolder.add(params, 'enableDamping').name('Orbit Smoothing (Lerp)').onChange(v => {
-        state.controls.enableDamping = v;
-    });
-    perfFolder.close();
 
 
     // 3. Standard Render (Rasterization)
 
-    const standardFolder = state.gui.addFolder('Standard Render (WebGL)');
-    standardFolder.add(params, 'acesToneMapping').name('ACES ToneMapping').onChange(v => {
-        state.renderer.toneMapping = v ? ACESFilmicToneMapping : NoToneMapping;
-    });
-    standardFolder.add(params, 'standardResolutionScale', 0.1, 2.0, 0.1).name('Res Scale');
-    standardFolder.close();
 
     // 3. Path Tracing (Interactive)
     const ptFolder = state.gui.addFolder('Path Tracing (Real-time)');
@@ -61,19 +40,6 @@ export function buildGui() {
     });
     snapshotFolder.close();
 
-    // 5. Minimap Configuration
-    const minimapFolder = state.gui.addFolder('Minimap (FBO)');
-    minimapFolder.add(params.minimap, 'enabled').name('Enable Minimap');
-    minimapFolder.add(params.minimap, 'posX', -50, 50).name('Camera X');
-    minimapFolder.add(params.minimap, 'posY', 1, 100).name('Camera Y');
-    minimapFolder.add(params.minimap, 'posZ', -50, 50).name('Camera Z');
-    minimapFolder.add(params.minimap, 'targetX', -50, 50).name('Target X');
-    minimapFolder.add(params.minimap, 'targetY', -50, 50).name('Target Y');
-    minimapFolder.add(params.minimap, 'targetZ', -50, 50).name('Target Z');
-    minimapFolder.add(params.minimap, 'fov', 1, 120).name('Perspective FOV');
-    minimapFolder.add(params.minimap, 'flipX').name('Flip Horizontal');
-    minimapFolder.add(params.minimap, 'flipY').name('Flip Vertical');
-    minimapFolder.close();
 
 
 
@@ -81,10 +47,6 @@ export function buildGui() {
 
 
 
-    const preprocessingFolder = state.gui.addFolder('Preprocessing');
-    preprocessingFolder.add(params, 'showBoundingBoxes').onChange(updateModel);
-    preprocessingFolder.add(params, 'arrangeInRow').onChange(updateModel);
-    preprocessingFolder.close();
 
     const environmentFolder = state.gui.addFolder('Environment');
     environmentFolder.add(params, 'envMap', envMaps).name('Map').onChange(updateEnvMap);
@@ -111,7 +73,5 @@ export function buildGui() {
     floorFolder.add(params, 'floorOpacity', 0, 1).onChange(onParamsChange);
     floorFolder.close();
 
-    // Scene Graph
-    new SceneGraph(state.scene, state.gui);
 }
 

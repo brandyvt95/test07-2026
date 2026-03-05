@@ -1,0 +1,52 @@
+{
+    "project": "PBRtracing Scene Configuration",
+    "version": "1.1.0",
+    "models": [
+        {
+            "id": "Rover",
+            "name": "M2020 Rover",
+            "url": "/src/assets/geo.glb",
+            "credit": "Model credit NASA / JPL-Caltech",
+            "config": {
+                "removeEmission": false,
+                "opacityToTransmission": false,
+                "ior": 1.5,
+                "bounces": 5,
+                "floorColor": "#111111",
+                "floorRoughness": 0.2,
+                "floorMetalness": 0.2,
+                "gradientTop": "#111111",
+                "gradientBot": "#000000"
+            },
+            "hooks": [
+                {
+                    "id": "hide_and_raycaster_only",
+                    "type": "visibility_override",
+                    "pattern": "*bound*",
+                    "params": {
+                        "visible": false,
+                        "rayOnly": true
+                    }
+                },
+                {
+                    "id": "teleport_gianhang_1",
+                    "type": "click_interaction",
+                    "pattern": "bound_gianhang_1",
+                    "action": "teleport_camera",
+                    "params": {
+                        "targetCamera": "camera_gianhang_1"
+                    }
+                },
+                {
+                    "id": "teleport_gianhang_2",
+                    "type": "click_interaction",
+                    "pattern": "bound_gianhang_2",
+                    "action": "teleport_camera",
+                    "params": {
+                        "targetCamera": "camera_gianhang_2"
+                    }
+                }
+            ]
+        }
+    ]
+}

@@ -5,10 +5,14 @@ import {
 } from 'three';
 import { MeshoptDecoder } from 'three/examples/jsm/libs/meshopt_decoder.module.js';
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
+import { DRACOLoader } from 'three/examples/jsm/loaders/DRACOLoader.js';
 import { ColladaLoader } from 'three/examples/jsm/loaders/ColladaLoader.js';
 import { LDrawLoader } from 'three/examples/jsm/loaders/LDrawLoader.js';
 import { LDrawUtils } from 'three/examples/jsm/utils/LDrawUtils.js';
 import { LDrawConditionalLineMaterial } from 'three/addons/materials/LDrawConditionalLineMaterial.js';
+
+const dracoLoader = new DRACOLoader();
+dracoLoader.setDecoderPath('https://www.gstatic.com/draco/v1/decoders/');
 
 export function convertOpacityToTransmission(model, ior) {
     model.traverse(c => {
@@ -66,12 +70,16 @@ export async function loadModel(url, onProgress) {
         return res.scene;
     } else if (/(gltf|glb)$/i.test(url)) {
         const complete = new Promise(resolve => manager.onLoad = resolve);
-        const gltf = await new GLTFLoader(manager).setMeshoptDecoder(MeshoptDecoder).loadAsync(url, progress => {
-            if (progress.total !== 0 && progress.total >= progress.loaded) {
-                onProgress(progress.loaded / progress.total);
-            }
-        });
+        const gltf = await new GLTFLoader(manager)
+            .setMeshoptDecoder(MeshoptDecoder)
+            .setDRACOLoader(dracoLoader)
+            .loadAsync(url, progress => {
+                if (progress.total !== 0 && progress.total >= progress.loaded) {
+                    onProgress(progress.loaded / progress.total);
+                }
+            });
         await complete;
+        console.log(gltf)
         return gltf.scene;
     } else if (/mpd$/i.test(url)) {
         manager.onProgress = (url, loaded, total) => {

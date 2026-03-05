@@ -21,6 +21,11 @@ export function onResize() {
     state.orthoCamera.updateProjectionMatrix();
 
     state.ptManager.updateCamera();
+
+    // Update UI Billboard position if exists
+    if (state.controls?._updateBillboardPosition) {
+        state.controls._updateBillboardPosition();
+    }
 }
 
 export function updateCameraProjection(cameraProjection) {
@@ -35,8 +40,7 @@ export function updateCameraProjection(cameraProjection) {
         state.activeCamera = state.orthoCamera;
     }
 
-    state.controls.object = state.activeCamera;
-    state.controls.update();
+    // PointerLockControls không có .object – không gọi controls.object/update ở đây
     state.ptManager.setCamera(state.activeCamera);
 }
 

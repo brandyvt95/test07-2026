@@ -2,7 +2,7 @@ export const state = {
     floorPlane: null,
     gui: null,
     stats: null,
-    pathTracer: null,
+    ptManager: null, // renamed from pathTracer to match usage in main.js
     renderer: null,
     orthoCamera: null,
     perspectiveCamera: null,
@@ -13,9 +13,11 @@ export const state = {
     gradientMap: null,
     loader: null,
     models: {},
-    modelProcessor: null,
-    minimapManager: null,
-    minimapGroup: null,
+    keys: null,
+    _fpHint: null,
+    modelCarObj: null,
+    hudClones: new Map(), // Map to track product clones by booth ID
+    originalMaterials: new Map(), // Map<productId, Map<childUuid, material>> — saved before colour change
+    activeProductId: null,
+    nav: null,
 };
-
-

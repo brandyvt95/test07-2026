@@ -40,56 +40,18 @@ export const params = {
     floorRoughness: 0.2,
     floorMetalness: 0.2,
 
-    showBoundingBoxes: false,
-    arrangeInRow: false,
-
     // Performance Settings
     fpsLimitMode: 'Auto',
-    enableDamping: true, // Orbit Lerp (Damping)
+    enableDamping: true,
 
-
-
-    // Raycast Mode
-    raycastMode: 'Standard', // Options: 'Off', 'BVH', 'Standard'
-
-
-
-    // Standard Render Config
-    standardResolutionScale: 1.0,
-    hqSamples: 500,
-
-    // Minimap Config (FBO)
-    minimap: {
-        enabled: true,
-        posX: 3,
-        posY: 3,
-        posZ: 3,
-        targetX: 0,
-        targetY: 0,
-        targetZ: 0,
-        fov: 20,
-        flipX: false,
-        flipY: false,
-        resolution: 512
-    },
-
-
-
-
-
-
-
-    // Snapshot Configs (Managed by GUI)
+    // Snapshot Configs
     snapshots: {
         low: { samples: 16, bounces: 3, renderScale: 0.5 },
         med: { samples: 64, bounces: 5, renderScale: 0.75 },
         high: { samples: 256, bounces: 10, renderScale: 1.0 }
     },
 
-
     ...getScaledSettings(),
 };
-
-
 
 export const orthoWidth = 2;

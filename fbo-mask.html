@@ -1,0 +1,405 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8" />
+    <title>Portal Pro - FBO Mask Pipeline</title>
+    <style>
+        body {
+            margin: 0;
+            overflow: hidden;
+            background: #000;
+        }
+
+        #hint {
+            position: absolute;
+            bottom: 20px;
+            left: 50%;
+            transform: translateX(-50%);
+            color: #fff;
+            font-family: monospace;
+            background: rgba(0, 0, 0, 0.8);
+            padding: 12px 24px;
+            border-radius: 10px;
+            pointer-events: none;
+            border: 1px solid #00ffff;
+            font-size: 13px;
+            z-index: 100;
+        }
+
+        .label {
+            position: absolute;
+            bottom: 175px;
+            color: #00ffff;
+            font-family: monospace;
+            font-size: 11px;
+            background: rgba(0, 0, 0, 0.7);
+            padding: 2px 8px;
+            pointer-events: none;
+        }
+    </style>
+    <script type="importmap">
+{"imports":{"three":"https://cdn.jsdelivr.net/npm/three@0.161.0/build/three.module.js","three/addons/":"https://cdn.jsdelivr.net/npm/three@0.161.0/examples/jsm/"}}
+</script>
+</head>
+
+<body>
+    <div id="hint"><b>FBO MASK PIPELINE</b> · W/A/S/D di chuyển · Click để lock chuột</div>
+    <div class="label" style="left: 10px;">TOP-DOWN (Check Pos)</div>
+    <div class="label" style="left: calc(33% + 10px);">OTHER WORLD RAW</div>
+    <div class="label" style="left: calc(66% + 10px);">MASK (trắng/đen)</div>
+
+    <script type="module">
+        import * as THREE from 'three'
+        import { PointerLockControls } from 'three/addons/controls/PointerLockControls.js'
+
+        // ── 1. RENDERER ──────────────────────────────────────────────────────────────
+        const renderer = new THREE.WebGLRenderer({ antialias: true, stencil: false })
+        renderer.setPixelRatio(window.devicePixelRatio)
+        renderer.setSize(innerWidth, innerHeight)
+        renderer.autoClear = false
+        document.body.appendChild(renderer.domElement)
+
+        const camera = new THREE.PerspectiveCamera(75, innerWidth / innerHeight, 0.01, 1000)
+        camera.position.set(0, 1.6, 5)
+
+        const debugTopCam = new THREE.OrthographicCamera(-15, 15, 10, -10, 1, 100)
+        debugTopCam.position.set(0, 20, 0)
+        debugTopCam.lookAt(0, 0, 0)
+
+        const controls = new PointerLockControls(camera, renderer.domElement)
+        document.body.addEventListener('click', () => controls.lock())
+
+        const keys = {}
+        document.addEventListener('keydown', e => keys[e.code] = true)
+        document.addEventListener('keyup', e => keys[e.code] = false)
+
+        // ── 2. WORLDS ────────────────────────────────────────────────────────────────
+        function createWorld(color, objectColor, isKnot) {
+            const scene = new THREE.Scene()
+            const sky = new THREE.Mesh(
+                new THREE.SphereGeometry(300, 32, 32),
+                new THREE.MeshBasicMaterial({ color: color, side: THREE.BackSide })
+            )
+            sky.userData.isSky = true
+            scene.add(sky)
+            scene.add(new THREE.GridHelper(100, 50, 0xffffff, 0x444444))
+            const geo = isKnot ? new THREE.TorusKnotGeometry(0.5, 0.2) : new THREE.BoxGeometry(1, 1, 1)
+            for (let i = 0; i < 40; i++) {
+                const m = new THREE.Mesh(geo, new THREE.MeshStandardMaterial({ color: objectColor }))
+                m.position.set(Math.random() * 40 - 20, 1, Math.random() * 80 - 40)
+                scene.add(m)
+            }
+            scene.add(new THREE.AmbientLight(0xffffff, 1.5))
+            return scene
+        }
+
+        const worldA = createWorld(0x020205, 0xff4444, false)
+        const worldB = createWorld(0x1a2a6c, 0x00ffcc, true)
+
+        // ── 3. PORTAL GEOMETRY ───────────────────────────────────────────────────────
+        const PORTAL_W = 3.5, PORTAL_H = 4.5
+        const portalPos = new THREE.Vector3(0, PORTAL_H / 2, 0)
+
+        // Frame trang trí — đẩy ra phía sau portal plane để KHÔNG ảnh hưởng depth so sánh
+        // Frame nằm tại z = -0.06 (phía sau portal) nên dScene tại vùng portal = depth frame > depth portal ✅
+        const frameGeo = new THREE.TubeGeometry(
+            new THREE.CatmullRomCurve3([
+                new THREE.Vector3(-PORTAL_W / 2, -PORTAL_H / 2, 0),
+                new THREE.Vector3(PORTAL_W / 2, -PORTAL_H / 2, 0),
+                new THREE.Vector3(PORTAL_W / 2, PORTAL_H / 2, 0),
+                new THREE.Vector3(-PORTAL_W / 2, PORTAL_H / 2, 0),
+                new THREE.Vector3(-PORTAL_W / 2, -PORTAL_H / 2, 0),
+            ], false), 60, 0.08, 8
+        )
+        const frameMat = new THREE.MeshStandardMaterial({ color: 0x00ffff, emissive: 0x00ffff, emissiveIntensity: 2 })
+        const frame = new THREE.Mesh(frameGeo, frameMat)
+        frame.position.copy(portalPos)
+        frame.position.z = -0.1  // Đẩy hẳn ra sau, không chen vào depth portal
+        worldA.add(frame)
+        const frameB = frame.clone()
+        frameB.position.z = 0.1  // World B nhìn từ phía ngược lại
+        worldB.add(frameB)
+
+        // Portal plane mesh — dùng để render mask & lấy depth
+        // KHÔNG thuộc world nào, render riêng
+        const portalPlaneMesh = new THREE.Mesh(
+            new THREE.PlaneGeometry(PORTAL_W, PORTAL_H),
+            new THREE.MeshBasicMaterial({ color: 0xffffff, side: THREE.DoubleSide })
+        )
+        portalPlaneMesh.position.copy(portalPos)
+
+        // Scene chỉ chứa portal plane (dùng cho pass mask + depth)
+        const portalScene = new THREE.Scene()
+        portalScene.add(portalPlaneMesh)
+
+        // Scene debug wireframe mask
+        const portalWireScene = new THREE.Scene()
+        const wirePortal = new THREE.Mesh(
+            new THREE.PlaneGeometry(PORTAL_W, PORTAL_H),
+            new THREE.MeshBasicMaterial({ color: 0x00ffff, wireframe: true, side: THREE.DoubleSide })
+        )
+        wirePortal.position.copy(portalPos)
+        portalWireScene.add(wirePortal)
+
+        // ── 4. FBO SETUP ─────────────────────────────────────────────────────────────
+        function makeFBO(w, h, depthBuffer = true) {
+            return new THREE.WebGLRenderTarget(w, h, {
+                minFilter: THREE.LinearFilter,
+                magFilter: THREE.LinearFilter,
+                format: THREE.RGBAFormat,
+                depthBuffer: depthBuffer,
+                stencilBuffer: false,
+            })
+        }
+
+        let W = innerWidth, H = innerHeight
+        // Pass 1+2: maskFBO — color=mask(trắng/đen), depth=depth của portal plane
+        let maskFBO = makeFBO(W, H, true)
+        // Pass 3: sceneFBO — color=scene chính, depth=scene chính
+        let sceneFBO = makeFBO(W, H, true)
+        // Pass 4: worldFBO — color=other world
+        let worldFBO = makeFBO(W, H, true)
+
+        // ── 5. COMPOSITE SHADER ──────────────────────────────────────────────────────
+        // Composite fullscreen quad: so sánh mask + depth để quyết định pixel nào win
+        const compositeScene = new THREE.Scene()
+        const compositeCamera = new THREE.OrthographicCamera(-1, 1, 1, -1, 0, 1)
+
+        const compositeMat = new THREE.ShaderMaterial({
+            uniforms: {
+                tMask: { value: maskFBO.texture },       // trắng/đen vùng portal
+                tScene: { value: sceneFBO.texture },      // scene chính color
+                tWorld: { value: worldFBO.texture },      // other world color
+                tDepthPortal: { value: maskFBO.depthTexture },  // depth của portal plane
+                tDepthScene: { value: sceneFBO.depthTexture }, // depth của scene chính
+                cameraNear: { value: camera.near },
+                cameraFar: { value: camera.far },
+            },
+            vertexShader: `
+    varying vec2 vUv;
+    void main() {
+      vUv = uv;
+      gl_Position = vec4(position.xy, 0.0, 1.0);
+    }
+  `,
+            fragmentShader: `
+    uniform sampler2D tMask;
+    uniform sampler2D tScene;
+    uniform sampler2D tWorld;
+    uniform sampler2D tDepthPortal;
+    uniform sampler2D tDepthScene;
+    uniform float cameraNear;
+    uniform float cameraFar;
+    varying vec2 vUv;
+
+    // Linearize depth từ [0,1] log-space về linear
+    float linearDepth(float d) {
+      float z = d * 2.0 - 1.0; // NDC
+      return (2.0 * cameraNear * cameraFar) / (cameraFar + cameraNear - z * (cameraFar - cameraNear));
+    }
+
+    void main() {
+      float mask       = texture2D(tMask, vUv).r;
+      float dPortalRaw = texture2D(tDepthPortal, vUv).r;
+      float dSceneRaw  = texture2D(tDepthScene,  vUv).r;
+
+      float dPortal = linearDepth(dPortalRaw);
+      float dScene  = linearDepth(dSceneRaw);
+
+      vec4 sceneColor = texture2D(tScene, vUv);
+      vec4 worldColor = texture2D(tWorld, vUv);
+
+      // Điều kiện hiển thị other world:
+      // 1. Pixel nằm trong vùng portal (mask > 0.5)
+      // 2. Không có object scene chính nào đứng TRƯỚC portal plane
+      //    dScene > dPortal → scene object ở SAU portal → other world win
+      //    dScene <= dPortal → scene object ở TRƯỚC portal → scene chính win (che portal)
+      //
+      // Epsilon 0.05 (linear units) để bù sai số depth buffer
+      if (mask > 0.5 && dScene > dPortal - 0.05) {
+        gl_FragColor = worldColor;
+      } else {
+        gl_FragColor = sceneColor;
+      }
+    }
+  `,
+            depthTest: false,
+            depthWrite: false,
+        })
+
+        // Cần depthTexture để sample trong shader
+        maskFBO.depthTexture = new THREE.DepthTexture(W, H)
+        maskFBO.depthTexture.format = THREE.DepthFormat
+        maskFBO.depthTexture.type = THREE.UnsignedIntType
+        sceneFBO.depthTexture = new THREE.DepthTexture(W, H)
+        sceneFBO.depthTexture.format = THREE.DepthFormat
+        sceneFBO.depthTexture.type = THREE.UnsignedIntType
+
+        // Cập nhật lại uniform sau khi gán depthTexture
+        compositeMat.uniforms.tDepthPortal.value = maskFBO.depthTexture
+        compositeMat.uniforms.tDepthScene.value = sceneFBO.depthTexture
+
+        const quad = new THREE.Mesh(new THREE.PlaneGeometry(2, 2), compositeMat)
+        compositeScene.add(quad)
+
+        // ── 6. RENDER PIPELINE ───────────────────────────────────────────────────────
+        function render() {
+            const thisWorld = inWorldB ? worldB : worldA
+            const otherWorld = inWorldB ? worldA : worldB
+
+            // ─── PASS 1+2: Render portal plane → maskFBO ─────────────────────────────
+            // color attachment = trắng/đen (chỗ nào có portal = trắng)
+            // depth attachment = depth tại portal plane
+            renderer.setRenderTarget(maskFBO)
+            renderer.setClearColor(0x000000, 1)
+            renderer.clear(true, true, false)
+            renderer.render(portalScene, camera)
+
+            // ─── PASS 3: Render scene chính → sceneFBO ───────────────────────────────
+            // Render KHÔNG có portal plane (frame vẫn có vì nằm trong worldA/worldB)
+            renderer.setRenderTarget(sceneFBO)
+            renderer.setClearColor(0x000000, 1)
+            renderer.clear(true, true, false)
+            renderer.render(thisWorld, camera)
+
+            // ─── PASS 4: Render other world → worldFBO ───────────────────────────────
+            renderer.setRenderTarget(worldFBO)
+            renderer.setClearColor(0x000000, 1)
+            renderer.clear(true, true, false)
+            renderer.render(otherWorld, camera)
+
+            // ─── PASS 5: Composite → screen ──────────────────────────────────────────
+            renderer.setRenderTarget(null)
+            renderer.setViewport(0, 0, W, H)
+            renderer.setScissorTest(false)
+            renderer.clear(true, true, false)
+            renderer.render(compositeScene, compositeCamera)
+
+            // ─── DEBUG VIEWS ─────────────────────────────────────────────────────────
+            renderDebug(otherWorld, thisWorld)
+        }
+
+        // ── 7. DEBUG ─────────────────────────────────────────────────────────────────
+        const debugMarker = new THREE.Mesh(
+            new THREE.BoxGeometry(0.6, 0.6, 1.2),
+            new THREE.MeshBasicMaterial({ color: 0xffff00 })
+        )
+
+        function renderDebug(otherWorld, currentWorld) {
+            const gap = 10
+            const debugW = (W - gap * 4) / 3
+            const debugH = 150
+            const debugAspect = debugW / debugH
+
+            renderer.setScissorTest(true)
+
+            // Ô 1: TOP-DOWN
+            drawDebugView(gap, gap, debugW, debugH, () => {
+                const size = 15
+                debugTopCam.left = -size * debugAspect
+                debugTopCam.right = size * debugAspect
+                debugTopCam.updateProjectionMatrix()
+                renderer.render(currentWorld, debugTopCam)
+                debugMarker.position.copy(camera.position)
+                debugMarker.rotation.copy(camera.rotation)
+                const ms = new THREE.Scene(); ms.add(debugMarker)
+                renderer.render(ms, debugTopCam)
+                ms.remove(debugMarker)
+            })
+
+            // Ô 2: OTHER WORLD RAW
+            drawDebugView(debugW + gap * 2, gap, debugW, debugH, () => {
+                const oldAspect = camera.aspect
+                camera.aspect = debugAspect
+                camera.updateProjectionMatrix()
+                renderer.render(otherWorld, camera)
+                camera.aspect = oldAspect
+                camera.updateProjectionMatrix()
+            })
+
+            // Ô 3: MASK trắng/đen — dùng thẳng FBO texture
+            drawDebugView((debugW + gap) * 2 + gap, gap, debugW, debugH, () => {
+                // Vẽ wireframe portal để thấy shape
+                const oldAspect = camera.aspect
+                camera.aspect = debugAspect
+                camera.updateProjectionMatrix()
+                // Hiển thị mask FBO bằng fullscreen quad nhỏ
+                const maskDebugMat = new THREE.MeshBasicMaterial({ map: maskFBO.texture })
+                const mqd = new THREE.Mesh(new THREE.PlaneGeometry(2, 2), maskDebugMat)
+                const mqs = new THREE.Scene(); mqs.add(mqd)
+                renderer.render(mqs, compositeCamera)
+                camera.aspect = oldAspect
+                camera.updateProjectionMatrix()
+            })
+
+            renderer.setScissorTest(false)
+        }
+
+        function drawDebugView(x, y, w, h, cb) {
+            renderer.setViewport(x, y, w, h)
+            renderer.setScissor(x, y, w, h)
+            renderer.clear(true, true, false)
+            cb()
+        }
+
+        // ── 8. UPDATE ────────────────────────────────────────────────────────────────
+        let inWorldB = false
+        let prevZ = camera.position.z
+
+        function update() {
+            const speed = 0.1
+            if (keys['KeyW']) controls.moveForward(speed)
+            if (keys['KeyS']) controls.moveForward(-speed)
+            if (keys['KeyA']) controls.moveRight(-speed)
+            if (keys['KeyD']) controls.moveRight(speed)
+
+            const pos = camera.position
+            const halfW = PORTAL_W / 2
+
+            if (Math.abs(pos.x) < halfW && pos.y < PORTAL_H) {
+                if (prevZ > 0 && pos.z <= 0 && !inWorldB) {
+                    inWorldB = true; pos.z = -0.1
+                } else if (prevZ < 0 && pos.z >= 0 && inWorldB) {
+                    inWorldB = false; pos.z = 0.1
+                }
+            }
+            prevZ = pos.z
+        }
+
+        function animate() {
+            requestAnimationFrame(animate)
+            update()
+            render()
+        }
+        animate()
+
+        // ── 9. RESIZE ────────────────────────────────────────────────────────────────
+        window.addEventListener('resize', () => {
+            W = innerWidth; H = innerHeight
+            renderer.setSize(W, H)
+            camera.aspect = W / H
+            camera.updateProjectionMatrix()
+
+            // Rebuild FBOs với kích thước mới
+            maskFBO.dispose(); maskFBO = makeFBO(W, H, true)
+            sceneFBO.dispose(); sceneFBO = makeFBO(W, H, true)
+            worldFBO.dispose(); worldFBO = makeFBO(W, H, true)
+
+            maskFBO.depthTexture = new THREE.DepthTexture(W, H)
+            maskFBO.depthTexture.format = THREE.DepthFormat
+            maskFBO.depthTexture.type = THREE.UnsignedIntType
+            sceneFBO.depthTexture = new THREE.DepthTexture(W, H)
+            sceneFBO.depthTexture.format = THREE.DepthFormat
+            sceneFBO.depthTexture.type = THREE.UnsignedIntType
+
+            compositeMat.uniforms.tMask.value = maskFBO.texture
+            compositeMat.uniforms.tScene.value = sceneFBO.texture
+            compositeMat.uniforms.tWorld.value = worldFBO.texture
+            compositeMat.uniforms.tDepthPortal.value = maskFBO.depthTexture
+            compositeMat.uniforms.tDepthScene.value = sceneFBO.depthTexture
+        })
+    </script>
+</body>
+
+</html>

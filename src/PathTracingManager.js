@@ -11,12 +11,15 @@ export class PathTracingManager {
         this.pt.physicallyCorrectLights = true;
         this.pt.transmissiveBounces = 10;
 
+        console.log("[PathTracingManager] Initialized with physicallyCorrectLights.");
         this.init();
     }
 
     init() {
-        this.pt.tiles.set(params.tiles, params.tiles);
-        this.pt.multipleImportanceSampling = params.multipleImportanceSampling;
+        if (this.pt.tiles && typeof this.pt.tiles.set === 'function') {
+            this.pt.tiles.set(params.tiles || 1, params.tiles || 1);
+        }
+        this.pt.multipleImportanceSampling = params.multipleImportanceSampling ?? true;
     }
 
     updateMaterials() {
@@ -39,8 +42,10 @@ export class PathTracingManager {
         this.pt.setCamera(camera);
     }
 
-    async setSceneAsync(scene, camera, options) {
+    async setSceneAsync(scene, camera, options = {}) {
+        console.log("[PathTracingManager] setSceneAsync starting...");
         await this.pt.setSceneAsync(scene, camera, options);
+        console.log("[PathTracingManager] setSceneAsync complete.");
     }
 
     renderSample() {
@@ -48,20 +53,19 @@ export class PathTracingManager {
     }
 
     get samples() {
-        return this.pt.samples;
+        return this.pt.samples || 0;
     }
 
     get isCompiling() {
-        return this.pt.isCompiling;
+        return this.pt.isCompiling || false;
     }
 
-    // Proxy cho các thuộc tính cần thiết
+    // Propertiess proxies
     get tiles() { return this.pt.tiles; }
+
     set multipleImportanceSampling(v) { this.pt.multipleImportanceSampling = v; }
     set bounces(v) { this.pt.bounces = v; }
     set filterGlossyFactor(v) { this.pt.filterGlossyFactor = v; }
     set renderScale(v) { this.pt.renderScale = v; }
     set transmissiveBounces(v) { this.pt.transmissiveBounces = v; }
 }
-
-
