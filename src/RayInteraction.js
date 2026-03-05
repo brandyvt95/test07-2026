@@ -64,8 +64,17 @@ export class RayInteraction {
         const isInBooth = currentCam.includes('gianhang');
 
         // ===================== PRODUCT INTERACTION =====================
-        if (object.name.toLowerCase().includes('sanpham') && !object.name.toLowerCase().includes('_dummy')) {
-            const productId = object.name;
+        // Traverse up to find the actual sanphamchon group (since raycaster hits child meshes)
+        let productNode = object;
+        while (productNode) {
+            if (productNode.name && productNode.name.toLowerCase().includes('sanphamchon') && !productNode.name.toLowerCase().includes('_dummy')) {
+                break;
+            }
+            productNode = productNode.parent;
+        }
+
+        if (productNode) {
+            const productId = productNode.name;
             // Extract number from product name, e.g. "sanpham_1" -> "1"
             const numMatch = productId.match(/(\d+)/);
             const productNum = numMatch ? numMatch[1] : null;
@@ -73,9 +82,11 @@ export class RayInteraction {
             // Find the product group by name in the model tree
             let targetProduct = null;
             let targetDummy = null;
+            const dummyName = productNum ? `sanpham_${productNum}_dummy` : `${productId}_dummy`;
+
             state.modelCar.traverse(child => {
                 if (child.name === productId) targetProduct = child;
-                if (child.name === `${productId}_dummy`) targetDummy = child;
+                if (child.name === dummyName || child.name === `${productId}_dummy`) targetDummy = child;
             });
 
             if (!targetProduct) {
@@ -93,21 +104,17 @@ export class RayInteraction {
                     const existingClone = state.hudClones.get(productId);
                     if (existingClone) {
                         state.scene.remove(existingClone);
-                        existingClone.traverse(c => {
-                            if (c.material) c.material.dispose();
-                            if (c.geometry) c.geometry.dispose();
-                        });
+                        // Do NOT dispose material or geometry here, as they are shared with the original model!
                         state.hudClones.delete(productId);
                     }
 
-                    // Reset material to random colour (original)
+                    // Reset material to original
                     targetProduct.traverse(child => {
-                        if (child.isMesh) {
-                            child.material = new MeshStandardMaterial({
-                                color: Math.floor(Math.random() * 16777215),
-                                roughness: 0.5,
-                                metalness: 0.5
-                            });
+                        if (child.isMesh && child.userData.originalMaterial) {
+                            // Dispose the temporary RED material we created
+                            if (child.material) child.material.dispose();
+                            // Restore original
+                            child.material = child.userData.originalMaterial;
                         }
                     });
 
@@ -116,91 +123,66 @@ export class RayInteraction {
                 }
 
                 // -------- ACTIVATE --------
-                console.log(`[Interaction] Activating ${productId} (inBooth: ${isInBooth})`);
+                console.log(`[Interaction] Activating ${productId}`);
                 state.activeProductId = productId;
 
-                if (isInBooth) {
-                    // === INSIDE BOOTH: turn RED + create HUD clone ===
-                    targetProduct.traverse(child => {
-                        if (child.isMesh) {
-                            child.material = new MeshStandardMaterial({
-                                color: 0xff0000,
-                                roughness: 0.5,
-                                metalness: 0.5
-                            });
-                        }
-                    });
+                // 1) Tạo clone trước khi đổi màu vật thể gốc (để clone giữ nguyên material/texture chuẩn)
+                const clone = targetProduct.clone();
 
-                    // Dispose previous clone if any
-                    if (state.hudClones.has(productId)) {
-                        const oldClone = state.hudClones.get(productId);
-                        state.scene.remove(oldClone);
-                        oldClone.traverse(c => {
-                            if (c.material) c.material.dispose();
-                            if (c.geometry) c.geometry.dispose();
+                // MẤU CHỐT: Phải set layer 1 cho clone thì Camera FBO mới nhìn thấy nó (main camera sẽ không thấy)
+                clone.traverse(child => {
+                    child.layers.set(1);
+                });
+
+                state.hudClones.set(productId, clone);
+                state.scene.add(clone);
+
+                // 2) Đổi màu vất thể gốc sang ĐỎ (highlight)
+                targetProduct.traverse(child => {
+                    if (child.isMesh) {
+                        // Lưu material gốc lại nếu chưa có
+                        if (!child.userData.originalMaterial) {
+                            child.userData.originalMaterial = child.material;
+                        }
+
+                        // Gán một material hoàn toàn mới cho vật thể gốc
+                        child.material = new MeshStandardMaterial({
+                            color: 0xff0000,
+                            roughness: 0.5,
+                            metalness: 0.5
                         });
-                        state.hudClones.delete(productId);
                     }
+                });
 
-                    // Create clone for HUD (Layer 1 only, random colour)
-                    const clone = targetProduct.clone();
-                    state.hudClones.set(productId, clone);
+                // Position clone at dummy location (dummy is hidden but we use its transform)
+                if (targetDummy) {
+                    targetDummy.updateMatrixWorld(true);
+                    const worldPos = new Vector3();
+                    const worldQuat = new Quaternion();
+                    targetDummy.getWorldPosition(worldPos);
+                    targetDummy.getWorldQuaternion(worldQuat);
 
-                    clone.traverse(child => {
-                        child.layers.set(1);
-                        if (child.isMesh) {
-                            child.material = new MeshStandardMaterial({
-                                color: Math.floor(Math.random() * 16777215),
-                                roughness: 0.5,
-                                metalness: 0.5
-                            });
-                        }
-                    });
-
-                    state.scene.add(clone);
-
-                    // Position clone at dummy location (dummy is hidden but we use its transform)
-                    if (targetDummy) {
-                        targetDummy.updateMatrixWorld(true);
-                        const worldPos = new Vector3();
-                        const worldQuat = new Quaternion();
-                        targetDummy.getWorldPosition(worldPos);
-                        targetDummy.getWorldQuaternion(worldQuat);
-
-                        if (clone.parent) {
-                            const p = clone.parent;
-                            p.updateMatrixWorld(true);
-                            p.worldToLocal(worldPos);
-                            const pQuat = new Quaternion();
-                            p.getWorldQuaternion(pQuat);
-                            worldQuat.premultiply(pQuat.invert());
-                        }
-                        clone.position.copy(worldPos);
-                        clone.quaternion.copy(worldQuat);
-                        clone.updateMatrixWorld(true);
+                    if (clone.parent) {
+                        const p = clone.parent;
+                        p.updateMatrixWorld(true);
+                        p.worldToLocal(worldPos);
+                        const pQuat = new Quaternion();
+                        p.getWorldQuaternion(pQuat);
+                        worldQuat.premultiply(pQuat.invert());
                     }
+                    clone.position.copy(worldPos);
+                    clone.quaternion.copy(worldQuat);
+                    clone.updateMatrixWorld(true);
+                }
 
-                    console.log(`[Interaction] ${productId} activated: main=RED, HUD clone created.`);
-                } else {
-                    // === OUTSIDE BOOTH: turn BLUE + teleport to booth ===
-                    targetProduct.traverse(child => {
-                        if (child.isMesh) {
-                            child.material = new MeshStandardMaterial({
-                                color: 0x0000ff,
-                                roughness: 0.5,
-                                metalness: 0.5
-                            });
-                        }
-                    });
-
-                    // Teleport to matching booth camera
+                if (!isInBooth) {
                     if (productNum) {
                         const targetCamName = `camera_gianhang_${productNum}`;
                         const bbox = new Box3().setFromObject(targetProduct);
                         const center = new Vector3();
                         bbox.getCenter(center);
                         this.teleportToCamera(targetCamName, center);
-                        console.log(`[Interaction] ${productId} activated: main=BLUE, teleporting to ${targetCamName}`);
+                        console.log(`[Interaction] ${productId} activated, teleporting to ${targetCamName}`);
                     }
                 }
 
@@ -212,6 +194,20 @@ export class RayInteraction {
         if (isInBooth && object.name.includes('bound_gianhang')) {
             console.log("[Ray] Already in booth view, ignoring bound click.");
             return;
+        }
+
+        // ================ AUTOMATIC BOOTH TELEPORT ================
+        if (!isInBooth && object.name.includes('bound_gianhang')) {
+            const numMatch = object.name.match(/(\d+)/);
+            if (numMatch) {
+                const targetCamera = `camera_gianhang_${numMatch[1]}`;
+                console.log(`[Interaction] Auto-teleport triggered for ${object.name} -> ${targetCamera}`);
+                const boundingBox = new Box3().setFromObject(object);
+                const center = new Vector3();
+                boundingBox.getCenter(center);
+                this.teleportToCamera(targetCamera, center);
+                return;
+            }
         }
 
         // ================ EXISTING: Hook-based Teleport logic ================

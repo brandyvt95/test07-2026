@@ -41,7 +41,7 @@ export const params = {
     floorMetalness: 0.2,
 
     // Performance Settings
-    fpsLimitMode: 'Auto',
+    fpsLimitMode: '60 FPS', // Set to '60 FPS' to disable auto-throttling to 30fps
     enableDamping: true,
 
     // Snapshot Configs

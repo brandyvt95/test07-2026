@@ -75,10 +75,22 @@ export class Controls {
         const wasInBooth = this.currentCameraName.includes('gianhang');
 
         if (!goingToBooth && state.billboard) {
-            // Leaving booth mode entirely → hide billboard and clear all clones
+            // Leaving booth mode entirely -> hide billboard and clear all clones
             state.billboard.hide();
+        } else if (goingToBooth && wasInBooth && state.billboard) {
+            // Switching between booths -> trigger HUD camera transition
+            const match = targetObj.name.match(/\d+$/);
+            if (match && state.modelCar) {
+                const targetCamName = `camera_sanpham_${match[0]}`;
+                let glbTargetCam = null;
+                state.modelCar.traverse(c => {
+                    if (c.isCamera && c.name === targetCamName) glbTargetCam = c;
+                });
+                if (glbTargetCam) {
+                    state.billboard.syncCameraWithMain(glbTargetCam);
+                }
+            }
         }
-        // If switching between booths, do NOT hide — clones persist
 
         // 1. Store START
         this.startPos.copy(this.camera.position);

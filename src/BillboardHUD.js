@@ -1,6 +1,6 @@
 import {
     PlaneGeometry, MeshBasicMaterial, MeshStandardMaterial, Mesh, DoubleSide, MathUtils,
-    WebGLRenderTarget, PerspectiveCamera, Vector3, Box3, Raycaster, Vector2
+    WebGLRenderTarget, PerspectiveCamera, Vector3, Box3, Raycaster, Vector2, Quaternion
 } from 'three';
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
 import { state } from './state.js';
@@ -9,6 +9,7 @@ export class BillboardHUD {
     constructor(camera, sizeRatio = 0.42) {
         this.mainCamera = camera;
         this.isVisible = false;
+        this._baseX = 0;
         this._baseY = 0;
         this.sizeRatio = sizeRatio; // Default to 35% of viewport
 
@@ -16,8 +17,18 @@ export class BillboardHUD {
         this.mouse = new Vector2();
         this._isMouseOver = false;
 
+        // Transition State for HUD Camera
+        this.isTransitioning = false;
+        this.transitionProgress = 0;
+        this.transitionDuration = 1.2;
+        this.startPos = new Vector3();
+        this.startQuat = new Quaternion();
+        this.endPos = new Vector3();
+        this.endQuat = new Quaternion();
+        this.midPos = new Vector3();
+
         // FBO Setup
-        this.renderTarget = new WebGLRenderTarget(1024, 1024, { samples: 4 });
+        this.renderTarget = new WebGLRenderTarget(1024, 1024, { samples: 1 });
 
         // HUD Camera (Layer 1 only for selective rendering)
         this.hudCamera = new PerspectiveCamera(60, 1, 0.1, 50000);
@@ -49,6 +60,10 @@ export class BillboardHUD {
     _initInteraction() {
         this.hudOrbit = new OrbitControls(this.hudCamera, state.renderer.domElement);
         this.hudOrbit.enabled = false;
+
+        this.isDragging = false;
+        this.hudOrbit.addEventListener('start', () => { this.isDragging = true; });
+        this.hudOrbit.addEventListener('end', () => { this.isDragging = false; });
 
         const onMouseMove = (e) => {
             const rect = state.renderer.domElement.getBoundingClientRect();
@@ -82,8 +97,30 @@ export class BillboardHUD {
         if (!glbCamera) return;
 
         glbCamera.updateMatrixWorld(true);
-        glbCamera.getWorldPosition(this.hudCamera.position);
-        glbCamera.getWorldQuaternion(this.hudCamera.quaternion);
+
+        if (this.isVisible) {
+            // Already visible: Animate to the new camera
+            this.startPos.copy(this.hudCamera.position);
+            this.startQuat.copy(this.hudCamera.quaternion);
+
+            glbCamera.getWorldPosition(this.endPos);
+            glbCamera.getWorldQuaternion(this.endQuat);
+
+            // Calculate bezier mid-point to arc over the object
+            this.midPos.addVectors(this.startPos, this.endPos).multiplyScalar(0.5);
+            const dist = this.startPos.distanceTo(this.endPos);
+            if (dist > 1) {
+                this.midPos.y += Math.max(dist * 0.4, 2);
+            }
+
+            this.isTransitioning = true;
+            this.transitionProgress = 0;
+        } else {
+            // Instant snap if not visible
+            glbCamera.getWorldPosition(this.hudCamera.position);
+            glbCamera.getWorldQuaternion(this.hudCamera.quaternion);
+        }
+
         this.hudCamera.fov = glbCamera.fov;
         this.hudCamera.updateProjectionMatrix();
 
@@ -177,12 +214,57 @@ export class BillboardHUD {
         }
     }
 
-    update(time) {
+    update(time, deltaTime = 0.016) {
         if (!this.isVisible) return;
 
-        // Floating animation
-        // const floatVal = Math.sin(time * 0.003) * 0.04;
-        // this.mesh.position.y = this._baseY + floatVal;
+        // FBO Camera Transition Logic
+        if (this.isTransitioning) {
+            this.transitionProgress += deltaTime / this.transitionDuration;
+            const t = MathUtils.smoothstep(this.transitionProgress, 0, 1);
+            const t1 = 1 - t;
+
+            // Quadratic Bezier Arc
+            this.hudCamera.position.set(
+                t1 * t1 * this.startPos.x + 2 * t1 * t * this.midPos.x + t * t * this.endPos.x,
+                t1 * t1 * this.startPos.y + 2 * t1 * t * this.midPos.y + t * t * this.endPos.y,
+                t1 * t1 * this.startPos.z + 2 * t1 * t * this.midPos.z + t * t * this.endPos.z
+            );
+            this.hudCamera.quaternion.slerpQuaternions(this.startQuat, this.endQuat, t);
+
+            if (this.transitionProgress >= 1) {
+                this.isTransitioning = false;
+            }
+        }
+
+        // Floating Animation (Very Subtle, like Drei)
+        const t = time * 0.001; // Normalize time
+        const dragFactor = this.isDragging ? 0.0 : 1.0;
+
+        // 1. Float Displacement (super gentle drift)
+        const floatX = Math.cos(t / 2) * 0.003 * dragFactor;
+        const floatY = Math.sin(t / 2) * 0.006 * dragFactor;
+
+        // 2. Float Rotation (independent axis tilt, very slight)
+        const floatRotX = Math.cos(t / 4) * 0.01 * dragFactor;
+        const floatRotY = Math.sin(t / 4) * 0.01 * dragFactor;
+        const floatRotZ = Math.sin(t / 4) * 0.01 * dragFactor;
+
+        // Combine Targets
+        const targetX = this._baseX + floatX;
+        const targetY = this._baseY + floatY;
+
+        const targetRotX = floatRotX;
+        const targetRotY = floatRotY;
+        const targetRotZ = floatRotZ;
+
+        // Smoothly interpolate position
+        this.mesh.position.x += (targetX - this.mesh.position.x) * 8 * deltaTime;
+        this.mesh.position.y += (targetY - this.mesh.position.y) * 8 * deltaTime;
+
+        // Smoothly interpolate rotation (creating the 3D float feel)
+        this.mesh.rotation.x += (targetRotX - this.mesh.rotation.x) * 8 * deltaTime;
+        this.mesh.rotation.y += (targetRotY - this.mesh.rotation.y) * 8 * deltaTime;
+        this.mesh.rotation.z += (targetRotZ - this.mesh.rotation.z) * 8 * deltaTime;
 
         this.renderFBO();
     }
@@ -220,6 +302,7 @@ export class BillboardHUD {
         const x = (w / 2) - (planeW / 2) - (w * 0.05);
         const y = -(h / 2) + (planeH / 2) + (h * 0.05);
         this.mesh.position.set(x, y, -distance);
+        this._baseX = x;
         this._baseY = y;
 
         // Force camera to match 1:1 aspect
