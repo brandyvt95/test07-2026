@@ -1,7 +1,7 @@
 import { getScaledSettings } from '../utils/getScaledSettings.js';
 
 export const envMaps = {
-    'Aristea Wreck Puresky': 'https://raw.githubusercontent.com/gkjohnson/3d-demo-data/master/hdri/aristea_wreck_puresky_2k.hdr',
+    'Aristea Wreck Puresky': '/assets/aristea_wreck_puresky_2k.hdr',
 };
 
 export const params = {

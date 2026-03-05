@@ -5,7 +5,7 @@
         {
             "id": "Rover",
             "name": "M2020 Rover",
-            "url": "/src/assets/geo.glb",
+            "url": "/assets/geo.glb",
             "credit": "Model credit NASA / JPL-Caltech",
             "config": {
                 "removeEmission": false,
