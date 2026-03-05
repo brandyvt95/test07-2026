@@ -47,7 +47,7 @@ async function init() {
 
     // Fetch the scenegraph config
     try {
-        const response = await fetch('./scenegraph.json');
+        const response = await fetch('/assets/scenegraph.json');
         const config = await response.json();
         state.models = config.models.reduce((acc, m) => {
             acc[m.id || m.name] = m;
