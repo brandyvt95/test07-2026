@@ -189,9 +189,18 @@ function animate() {
 
     if (!state.perfMonitor.shouldRender()) return;
 
-    // Standard Render Path (PT Suspended)
-    state.renderer.autoClear = true;
-    state.renderer.render(state.scene, state.perspectiveCamera || state.activeCamera);
+    if (params.enable) {
+        if (!params.pause || state.ptManager.samples < 1) {
+            state.ptManager.renderSample();
+        }
+    } else {
+        state.renderer.autoClear = true;
+        state.renderer.render(state.scene, state.perspectiveCamera || state.activeCamera);
+    }
+
+    if (state.loader && state.ptManager) {
+        state.loader.setSamples(state.ptManager.samples, state.ptManager.isCompiling);
+    }
 }
 
 

@@ -8,7 +8,7 @@ export const params = {
     multipleImportanceSampling: true,
     acesToneMapping: true,
     renderScale: 1 / window.devicePixelRatio,
-    tiles: 1,
+    tiles: 3, // Changed from 1 to 3 to divide GPU load and prevent freezing
 
     model: '',
 

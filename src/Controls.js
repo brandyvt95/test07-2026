@@ -27,6 +27,12 @@ export class Controls {
         this.orbit.dampingFactor = 0.05;
         this.orbit.screenSpacePanning = true;
 
+        this.orbit.addEventListener('change', () => {
+            if (state.ptManager) {
+                state.ptManager.updateCamera();
+            }
+        });
+
         console.log("[Controls] Initialized with Transition support (Independent Billboard Mode).");
     }
 

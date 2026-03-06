@@ -21,6 +21,7 @@ export class RenderManager {
 
         overlay.addEventListener('click', (e) => {
             const level = e.target.dataset.level;
+            console.log(`[RenderManager] Overlay clicked, level: ${level}`);
             if (level) this.startRender(level);
         });
 
@@ -82,6 +83,7 @@ export class RenderManager {
 
         this.isRendering = true;
         this.shouldAbort = false;
+        console.log(`[RenderManager] Starting render level: ${level}`, config);
 
         const originalParams = { ...params };
         const ptManager = state.ptManager;
@@ -89,30 +91,51 @@ export class RenderManager {
         // Step 1: Inject high quality params into the MAIN LOOP
         params.renderScale = config.renderScale;
         params.bounces = config.bounces;
-        params.enable = true;
         params.pause = false;
 
 
 
         // Critical: Update tracer state immediately
-        ptManager.renderScale = params.renderScale;
-        ptManager.bounces = params.bounces;
-        ptManager.reset();
+        ptManager.renderScale = config.renderScale || params.renderScale;
+        ptManager.bounces = config.bounces || params.bounces;
+        if (ptManager.tiles && typeof ptManager.tiles.set === 'function') {
+            ptManager.tiles.set(3, 3); // Divide GPU payload into 9 frames
+        }
 
         this.progressEl.classList.add('active');
+        if (this.progressText) this.progressText.innerText = `Preparing ${level.toUpperCase()}...`;
 
-        // Step 2: Monitoring interval to check progress from main loop
-        this.monitorId = setInterval(() => {
-            // Terminal conditions: Only Abort or Target Samples reached
-            if (this.shouldAbort || ptManager.samples >= config.samples) {
-                this.finishRender(ptManager.samples >= config.samples, originalParams);
-            } else {
-                // Update UI
-                const progress = Math.min(99, Math.round((ptManager.samples / config.samples) * 100));
-                if (this.progressText) {
-                    this.progressText.innerText = `Rendering ${level.toUpperCase()}... ${progress}%`;
-                }
+        setTimeout(() => {
+            try {
+                console.log("[RenderManager] pt.updateMaterials()");
+                // ptManager.updateMaterials(); // DISABLED for isolation
+                console.log("[RenderManager] pt.updateEnvironment()");
+                // ptManager.updateEnvironment(); // DISABLED for isolation
+                console.log("[RenderManager] pt.updateCamera()");
+                ptManager.updateCamera();
+                console.log("[RenderManager] pt.reset()");
+                ptManager.reset();
+                console.log("[RenderManager] Enabing render loop...");
+                params.enable = true; // DO THIS HERE, not before!
+                console.log("[RenderManager] Setup Success.");
+            } catch (e) {
+                console.error("[RenderManager] Error during preparing pathtracer:", e);
+                this.abortRender(e.message);
             }
+
+            // Step 2: Monitoring interval to check progress from main loop
+            this.monitorId = setInterval(() => {
+                // Terminal conditions: Only Abort or Target Samples reached
+                if (this.shouldAbort || ptManager.samples >= config.samples) {
+                    this.finishRender(ptManager.samples >= config.samples, originalParams);
+                } else {
+                    // Update UI
+                    const progress = Math.min(99, Math.round((ptManager.samples / config.samples) * 100));
+                    if (this.progressText) {
+                        this.progressText.innerText = `Rendering ${level.toUpperCase()}... ${progress}%`;
+                    }
+                }
+            }, 100);
         }, 100);
     }
 

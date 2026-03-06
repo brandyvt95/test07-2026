@@ -115,12 +115,10 @@ export async function processGlb() {
         state.controls.applyGlbCamera(state.modelCar);
     }
 
-    /*
-    await state.ptManager.setSceneAsync(state.scene, state.activeCamera, {
+    await state.ptManager.setSceneAsync(state.scene, state.perspectiveCamera || state.activeCamera, {
         onProgress: v => state.loader.setPercentage(0.5 + 0.5 * v),
     });
-    */
-    console.log("[GlbProcessor] PathTracer setup SUSPENDED (Standard Render Mode)");
+    console.log("[GlbProcessor] PathTracer setup completed");
 
     finalizeProcess(modelInfo, config);
 }
