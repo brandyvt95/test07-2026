@@ -1,0 +1,124 @@
+<!DOCTYPE html>
+
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <title>GLB → BUF (pos normal uv)</title>
+
+    <style>
+        body {
+            margin: 0;
+            background: #111;
+            color: white;
+            font-family: sans-serif
+        }
+
+        button {
+            position: absolute;
+            top: 10px;
+            left: 10px;
+            padding: 10px
+        }
+    </style>
+
+    <script type="importmap">
+{
+  "imports": {
+    "three": "https://unpkg.com/three@0.160.0/build/three.module.js",
+    "three/addons/": "https://unpkg.com/three@0.160.0/examples/jsm/"
+  }
+}
+</script>
+
+</head>
+
+<body>
+
+    <button id="exportBtn">Export BUF</button>
+
+    <script type="module">
+
+        import * as THREE from "three";
+        import { GLTFLoader } from "three/addons/loaders/GLTFLoader.js";
+        import { DRACOLoader } from "three/addons/loaders/DRACOLoader.js";
+
+        const dracoLoader = new DRACOLoader();
+        dracoLoader.setDecoderPath(
+            "https://unpkg.com/three@0.160.0/examples/jsm/libs/draco/"
+        );
+
+        const loader = new GLTFLoader();
+        loader.setDRACOLoader(dracoLoader);
+
+        let vertices = [];
+
+        loader.load("model.glb", (gltf) => {
+            // Quan trọng: Cập nhật ma trận của toàn bộ scene để có world matrix chính xác
+            gltf.scene.updateMatrixWorld(true);
+
+            gltf.scene.traverse((obj) => {
+                if (!obj.isMesh) return;
+
+                const geo = obj.geometry;
+                const posAttr = geo.attributes.position;
+                const normAttr = geo.attributes.normal;
+                const uvAttr = geo.attributes.uv;
+                const index = geo.index;
+
+                const worldMatrix = obj.matrixWorld;
+                // Ma trận riêng để biến đổi vector pháp tuyến (loại bỏ phần tịnh tiến/scale)
+                const normalMatrix = new THREE.Matrix3().getNormalMatrix(worldMatrix);
+
+                const vertexCount = index ? index.count : posAttr.count;
+
+                for (let i = 0; i < vertexCount; i++) {
+                    const vi = index ? index.getX(i) : i;
+
+                    // 1. Xử lý Vị trí (Position)
+                    const vPos = new THREE.Vector3().fromBufferAttribute(posAttr, vi);
+                    vPos.applyMatrix4(worldMatrix); // Chuyển sang World Space
+
+                    // 2. Xử lý Pháp tuyến (Normal)
+                    let vNorm = new THREE.Vector3(0, 0, 1);
+                    if (normAttr) {
+                        vNorm.fromBufferAttribute(normAttr, vi);
+                        vNorm.applyMatrix3(normalMatrix).normalize(); // Xoay pháp tuyến theo mesh
+                    }
+
+                    // 3. Xử lý UV
+                    let vUv = new THREE.Vector2(0, 0);
+                    if (uvAttr) {
+                        vUv.fromBufferAttribute(uvAttr, vi);
+                    }
+
+                    // Đẩy vào mảng kết quả
+                    vertices.push(
+                        vPos.x, vPos.y, vPos.z,
+                        vNorm.x, vNorm.y, vNorm.z,
+                        vUv.x, vUv.y
+                    );
+                }
+            });
+
+            console.log("Vertex count:", vertices.length / 8);
+        });
+        document.getElementById("exportBtn").onclick = () => {
+
+            const float = new Float32Array(vertices);
+
+            const blob = new Blob([float.buffer]);
+
+            const a = document.createElement("a");
+
+            a.href = URL.createObjectURL(blob);
+            a.download = "model.buf";
+            a.click();
+
+        };
+
+    </script>
+
+</body>
+
+</html>

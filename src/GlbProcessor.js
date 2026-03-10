@@ -164,15 +164,15 @@ function runMaterialPass(model, modelInfo, config) {
         }
 
         // 2. Process all Meshes
-        if (c.isMesh) {
-            // Apply unique colors/materials to EVERYTHING initially
-            const randomColor = Math.floor(Math.random() * 16777215);
-            c.material = new MeshStandardMaterial({
-                color: randomColor,
-                roughness: 0.5,
-                metalness: 0.5
-            });
-        }
+        // if (c.isMesh) {
+        //     // Apply unique colors/materials to EVERYTHING initially
+        //     const randomColor = Math.floor(Math.random() * 16777215);
+        //     c.material = new MeshStandardMaterial({
+        //         color: randomColor,
+        //         roughness: 0.5,
+        //         metalness: 0.5
+        //     });
+        // }
     });
 
     // 2. Custom post-process hook (if any in JS)
