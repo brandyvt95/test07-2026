@@ -111,7 +111,7 @@ export class RayInteraction {
 
                 const isLabel = !!root.userData.isUsedLabel;
                 const target = root.userData.sourceMesh || root;
-                
+
                 if (isLabel) return true;
                 if (target.userData.isUsed) return false;
 
@@ -155,7 +155,7 @@ export class RayInteraction {
 
                 const isLabel = !!root.userData.isUsedLabel;
                 const target = root.userData.sourceMesh || root;
-                
+
                 if (isLabel) return true;
                 if (target.userData.isUsed) return false;
 

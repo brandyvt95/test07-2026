@@ -159,8 +159,6 @@ export class BillboardHUD {
         if (car) {
             car.traverse(c => {
                 if (c.layers) {
-                    // Only show to HUD camera (Layer 1) if it's actually visible on the car
-                    // Avoid showing hidden base parts or booth items
                     if (c.visible && !c.name.includes('bound') && !c.name.includes('point')) {
                         c.layers.enable(1);
                     } else {
@@ -168,6 +166,8 @@ export class BillboardHUD {
                     }
                 }
             });
+            // Hide ONLY the car mesh from the main scene loop
+            if (state.modelCarObj) state.modelCarObj.visible = false;
         }
 
         // 3. Keep existing HUD clones intact (they persist across booth views)
@@ -203,8 +203,9 @@ export class BillboardHUD {
         this.mesh.visible = false;
 
         // Restore MODEL_CAR to Main Scene (Layer 0), Hide from HUD (Layer 1)
-        if (state.modelCarObj) {
-            state.modelCarObj.traverse(c => {
+        if (state.modelCar) {
+            if (state.modelCarObj) state.modelCarObj.visible = true;
+            state.modelCar.traverse(c => {
                 if (c.layers) {
                     // Restore main view
                     c.layers.enable(0);
@@ -280,15 +281,19 @@ export class BillboardHUD {
     renderFBO() {
         const renderer = state.renderer;
         const scene = state.scene;
-
-        // HUD Mesh itself is on Layer 0 (default), so hudCamera (Layer 1) won't see it.
-        // No need for traverse visibility toggling anymore!
+        const carObj = state.modelCarObj;
 
         const oldTarget = renderer.getRenderTarget();
         renderer.setRenderTarget(this.renderTarget);
 
+        // Temporarily show ONLY the car mesh for HUD render
+        if (carObj) carObj.visible = true;
+
         // We use the existing scene but hudCamera only sees Layer 1
         renderer.render(scene, this.hudCamera);
+
+        // Hide it back for main scene render
+        if (carObj) carObj.visible = false;
 
         renderer.setRenderTarget(oldTarget);
     }

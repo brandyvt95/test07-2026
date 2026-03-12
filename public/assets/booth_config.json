@@ -19,7 +19,7 @@
             "clickPattern": "bound_gianhang_guongchieuhau",
             "boothCamera": "camera_gianhang_guongchieuhau",
             "modelCamera": "camerafbo_guongchieuhau",
-            "productPattern": "guong_mau_*"
+            "productPattern": "guongchieuhau_mau_*"
         },
         {
             "id": "cangio",
@@ -60,6 +60,17 @@
                 {
                     "id": "type2",
                     "meshName": "ongxa_mau_2"
+                }
+            ]
+        },
+        "mirrors": {
+            "swapLogic": "full_replacement",
+            "multiSelect": true,
+            "dummyPattern": "guongchieuhau_mau_*_dummy_*",
+            "options": [
+                {
+                    "id": "type1",
+                    "meshName": "guongchieuhau_mau_1"
                 }
             ]
         }

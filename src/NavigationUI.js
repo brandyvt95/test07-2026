@@ -163,7 +163,7 @@ export class NavigationUI {
         }
 
         state.controls.transitionTo(targetCam, orbitCenter);
-        
+
         // Sync boothId for raycaster logic
         if (state.boothConfig?.booths) {
             const booth = state.boothConfig.booths.find(b => b.boothCamera === targetCam.name);

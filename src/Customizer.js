@@ -35,6 +35,11 @@ export class Customizer {
                 console.log(`[Customizer] Toggle OFF detected for ${optionId}`);
                 this._removeSpecificPart(category, optionId);
                 activeSet.delete(optionId);
+                
+                if (activeSet.size === 0) {
+                    this._restoreBasePieces(category);
+                }
+
                 if (state.ptManager) state.ptManager.reset();
                 return;
             }
@@ -106,29 +111,36 @@ export class Customizer {
 
         // REFINED DUMMY SEARCH logic
         const dummies = [];
-        const isExhaust = (category === 'exhausts' || catConfig.swapLogic === 'full_replacement');
+        const isFullReplacement = catConfig.swapLogic === 'full_replacement';
 
-        if (isExhaust) {
-            // Rule: Find ongxa_goc_N_dummy* where N is extracted from incomingMesh name (ongxa_mau_N)
+        if (isFullReplacement) {
+            // Rule: Find dummies matching the model index N (e.g. mau_1 -> dummy_1)
             const match = incomingMesh.name.match(/_mau_(\d+)/i);
             const indexN = match ? match[1] : null;
-            if (indexN) {
-                const specificPattern = new RegExp(`ongxa_goc_${indexN}_dummy`, 'i');
+
+            if (indexN && catConfig.dummyPattern) {
+                const specificPattern = new RegExp('^' + catConfig.dummyPattern.replace('*', indexN).replace(/\*/g, '.*') + '$', 'i');
                 state.modelCar.traverse(child => {
                     if (specificPattern.test(child.name)) dummies.push(child);
                 });
-                console.log(`[Customizer] Exhaust Search: index=${indexN}, found ${dummies.length} dummies.`);
+                console.log(`[Customizer] Full Replacement [${category}]: index=${indexN}, found ${dummies.length} dummies.`);
             }
         } else {
-            // Default pattern search (for wheels, etc)
-            const pattern = new RegExp(catConfig.dummyPattern.replace('*', '.*'), 'i');
-            state.modelCar.traverse(child => {
-                if (pattern.test(child.name)) dummies.push(child);
-            });
+            // Generic pattern search (for wheels, mirrors, etc)
+            if (catConfig.dummyPattern) {
+                const genericPattern = new RegExp('^' + catConfig.dummyPattern.replace(/\*/g, '.*') + '$', 'i');
+                state.modelCar.traverse(child => {
+                    if (genericPattern.test(child.name)) dummies.push(child);
+                });
+                console.log(`[Customizer] Generic Search [${category}]: found ${dummies.length} dummies.`);
+            }
         }
 
         if (dummies.length === 0) {
-            console.warn(`[Customizer] No dummies found for category "${category}"`);
+            console.warn(`[Customizer] No dummies found for category "${category}". Pattern: ${catConfig.dummyPattern}`);
+            // Force used mode even if no dummies on car, so booth visuals stay in sync
+            this._setUsedMode(incomingMesh, true);
+            if (state.ptManager) state.ptManager.reset();
             return;
         }
 
@@ -159,10 +171,10 @@ export class Customizer {
                                 // Create a slim geometry for this group
                                 const groupGeo = geometry.clone();
                                 groupGeo.setDrawRange(group.start, group.count);
-                                
+
                                 const groupMat = material[group.materialIndex] || material[0];
                                 const iMesh = new InstancedMesh(groupGeo, groupMat, dummies.length);
-                                
+
                                 iMesh.userData.category = category;
                                 iMesh.userData.optionId = optionId;
                                 state.modelCar.add(iMesh);
@@ -172,7 +184,7 @@ export class Customizer {
                             // Single Material or Exhaust (take first material)
                             const useMat = Array.isArray(material) ? material[0] : material;
                             const iMesh = new InstancedMesh(geometry, useMat, dummies.length);
-                            
+
                             iMesh.userData.category = category;
                             iMesh.userData.optionId = optionId;
                             state.modelCar.add(iMesh);
@@ -208,14 +220,14 @@ export class Customizer {
             console.log(`[Customizer] Moving children for category "${category}" (single-placement)`);
             const firstDummy = dummies[0];
             firstDummy.visible = true;
-            
+
             const meshesToMove = [];
             incomingMesh.traverse(c => {
                 if (c.isMesh && !c.userData.isUsedLabel) meshesToMove.push(c);
             });
-            
+
             if (!incomingMesh.userData.movedMeshes) incomingMesh.userData.movedMeshes = [];
-            
+
             meshesToMove.forEach(m => {
                 firstDummy.add(m);
                 m.position.set(0, 0, 0);
@@ -316,11 +328,14 @@ export class Customizer {
             this._removeSpecificPart(category, previousOptionId);
         }
 
-        console.log(`[Customizer] applyBasePart: category=${category}`);
+        this._restoreBasePieces(category);
+        this.activeParts.delete(category);
+        if (state.ptManager) state.ptManager.reset();
+    }
 
-        // 3. Restore ALL base pieces
+    _restoreBasePieces(category) {
         const basePieces = state.baseParts[category] || [];
-        console.log(`[Customizer] applyBasePart: Restoring ${basePieces.length} base pieces for category "${category}"`);
+        console.log(`[Customizer] _restoreBasePieces: Restoring ${basePieces.length} pieces for category "${category}"`);
 
         basePieces.forEach(child => {
             if (child.userData.initParent) {
@@ -330,6 +345,7 @@ export class Customizer {
             child.quaternion.copy(child.userData.initQuat);
             child.scale.copy(child.userData.initScale);
             child.visible = true;
+            child.userData.isUsed = false;
             child.traverse(c => {
                 if (c.layers) {
                     c.layers.enable(0);
@@ -337,9 +353,6 @@ export class Customizer {
                 }
             });
         });
-
-        this.activeParts.delete(category);
-        if (state.ptManager) state.ptManager.reset();
     }
 
     _removeClones(category) {
