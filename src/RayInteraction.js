@@ -45,10 +45,28 @@ export class RayInteraction {
         }
     }
 
+    _getInteractiveRoot(obj) {
+        let curr = obj;
+        while (curr) {
+            if (curr.userData?.isInteractive || curr.userData?.isUsedLabel) return curr;
+            if (curr.userData?.sourceMesh) return curr.userData.sourceMesh;
+            curr = curr.parent;
+        }
+        return null;
+    }
+
     _highlightObject(obj) {
+        if (obj.userData.isUsedLabel) {
+            if (!obj.userData.originalOpacity) obj.userData.originalOpacity = obj.material.opacity;
+            obj.material.opacity = 1.0;
+            return;
+        }
+
         const target = obj.userData.sourceMesh || obj;
+        if (target.userData.isUsed) return; // Don't highlight invisible meshes
+
         target.traverse(child => {
-            if (child.isMesh && !child.userData.isHull) {
+            if (child.isMesh && !child.userData.isUsedLabel) {
                 if (!child.userData.originalMaterial) {
                     child.userData.originalMaterial = child.material;
                 }
@@ -59,12 +77,16 @@ export class RayInteraction {
 
     _resetHover() {
         if (state.hoveredObject) {
-            const target = state.hoveredObject.userData.sourceMesh || state.hoveredObject;
-            target.traverse(child => {
-                if (child.isMesh && child.userData.originalMaterial) {
-                    child.material = child.userData.originalMaterial;
-                }
-            });
+            if (state.hoveredObject.userData.isUsedLabel) {
+                state.hoveredObject.material.opacity = state.hoveredObject.userData.originalOpacity || 0.7;
+            } else {
+                const target = state.hoveredObject.userData.sourceMesh || state.hoveredObject;
+                target.traverse(child => {
+                    if (child.isMesh && child.userData.originalMaterial) {
+                        child.material = child.userData.originalMaterial;
+                    }
+                });
+            }
             state.hoveredObject = null;
         }
     }
@@ -84,15 +106,23 @@ export class RayInteraction {
             const regex = pattern ? new RegExp(`^${pattern}$`, 'i') : null;
 
             const interactiveHit = hits.find(h => {
-                const target = h.object.userData.sourceMesh || h.object;
+                const root = this._getInteractiveRoot(h.object);
+                if (!root) return false;
+
+                const isLabel = !!root.userData.isUsedLabel;
+                const target = root.userData.sourceMesh || root;
+                
+                if (isLabel) return true;
+                if (target.userData.isUsed) return false;
+
                 const isOption = regex && regex.test(target.name);
                 const isSwappedBase = target.userData.isBasePart;
-                return (isOption || isSwappedBase) && target.userData.isInteractive;
+                return (isOption || isSwappedBase);
             });
 
             if (interactiveHit) {
-                const target = interactiveHit.object.userData.sourceMesh || interactiveHit.object;
-                this._setHover(target);
+                const root = this._getInteractiveRoot(interactiveHit.object);
+                this._setHover(root);
                 this.domElement.style.cursor = 'pointer';
             } else {
                 this._setHover(null);
@@ -120,18 +150,27 @@ export class RayInteraction {
             const regex = pattern ? new RegExp(`^${pattern}$`, 'i') : null;
 
             const productHit = hits.find(h => {
-                const target = h.object.userData.sourceMesh || h.object;
+                const root = this._getInteractiveRoot(h.object);
+                if (!root) return false;
+
+                const isLabel = !!root.userData.isUsedLabel;
+                const target = root.userData.sourceMesh || root;
+                
+                if (isLabel) return true;
+                if (target.userData.isUsed) return false;
+
                 const isOption = regex && regex.test(target.name);
                 const isSwappedBase = target.userData.isBasePart;
-                return (isOption || isSwappedBase) && target.userData.isInteractive;
+                return (isOption || isSwappedBase);
             });
 
             if (productHit) {
-                const target = productHit.object.userData.sourceMesh || productHit.object;
+                const root = this._getInteractiveRoot(productHit.object);
+                const target = root.userData.sourceMesh || root;
                 if (target.userData.isBasePart) {
                     customizer.applyBasePart(target.userData.category);
                 } else {
-                    this._handleProductClick(target);
+                    this._handleProductClick(root);
                 }
                 return;
             }
@@ -153,8 +192,7 @@ export class RayInteraction {
         const booth = state.boothConfig.booths.find(b => b.id === state.currentBoothId);
         if (!booth) return;
 
-        // Hide entire group/mesh
-        sourceMesh.visible = false;
+        // Customizer handles visibility via _setUsedMode
         this._resetHover();
 
         for (const catKey in state.boothConfig.customization) {

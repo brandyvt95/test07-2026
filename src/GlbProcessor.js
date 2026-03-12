@@ -1,4 +1,4 @@
-import { Box3, Sphere, Vector3, MeshStandardMaterial, PlaneGeometry, BoxGeometry, Mesh, Scene, Quaternion, AmbientLight } from 'three';
+import { Box3, Sphere, Vector3, MeshStandardMaterial, PlaneGeometry, BoxGeometry, Mesh, Scene, Quaternion, AmbientLight, CanvasTexture, SpriteMaterial, Sprite } from 'three';
 import { ConvexGeometry } from 'three/examples/jsm/geometries/ConvexGeometry.js';
 import { params } from './params.js';
 import { state } from './state.js';
@@ -200,10 +200,9 @@ function setupInteraction(model) {
         root.userData.isInteractive = true;
         productCount++;
 
-        const hull = createConvexHull(root);
-        if (hull) {
-            hull.layers.set(0);
-            root.add(hull);
+        const label = createUsedLabel(root);
+        if (label) {
+            root.add(label);
         }
     });
 
@@ -214,71 +213,46 @@ function setupInteraction(model) {
  * Creates a single ConvexHull mesh by aggregating all geometry points from the root and its children.
  * Points are transformed into the root's local coordinate space.
  */
-function createConvexHull(root) {
-    const pts = [];
+/**
+ * Creates a "Used" text label using a Sprite and a Canvas texture.
+ */
+function createUsedLabel(root) {
+    const canvas = document.createElement('canvas');
+    canvas.width = 256;
+    canvas.height = 128;
+    const ctx = canvas.getContext('2d');
 
-    // Ensure world matrices are up to date for correct vertex transformation
-    root.updateMatrixWorld(true);
+    // Simple Background
+    ctx.fillStyle = 'rgba(0, 0, 0, 0.7)';
+    ctx.fillRect(0, 0, 256, 128);
 
-    const worldToRoot = root.matrixWorld.clone().invert();
+    // Text Label
+    ctx.font = 'bold 64px Arial';
+    ctx.fillStyle = '#00ffff';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText('USED', 128, 64);
 
-    root.traverse(child => {
-        if (!child.isMesh || child.userData.isHull) return;
-        if (!child.geometry) return;
+    const texture = new CanvasTexture(canvas);
+    const material = new SpriteMaterial({ map: texture, depthTest: false });
+    const sprite = new Sprite(material);
 
-        const posAttr = child.geometry.attributes.position;
-        if (!posAttr) return;
+    // Position it clearly above the root
+    sprite.position.set(0, 0.4, 0); 
+    sprite.scale.set(0.6, 0.3, 1);
+    sprite.name = `used_label_${root.name}`;
+    sprite.visible = false;
+    sprite.userData.isUsedLabel = true;
+    sprite.userData.isInteractive = true;
 
-        // Determine sampling rate for performance (max ~1000 points total per hull)
-        const totalPointsInMesh = posAttr.count;
-        const stride = 42;
-
-        const localToWorld = child.matrixWorld;
-
-        for (let i = 0; i < totalPointsInMesh; i += stride) {
-            // Get local mesh vertex
-            const v = new Vector3(posAttr.getX(i), posAttr.getY(i), posAttr.getZ(i));
-
-            // Convert Mesh Local -> World -> Product Root Local
-            v.applyMatrix4(localToWorld);
-            v.applyMatrix4(worldToRoot);
-
-            pts.push(v);
-        }
+    Object.defineProperty(sprite.userData, 'sourceMesh', {
+        value: root,
+        enumerable: false,
+        writable: true,
+        configurable: true
     });
 
-    if (pts.length < 4) {
-        console.warn(`[GlbProcessor] Not enough points to create hull for ${root.name}`);
-        return null;
-    }
-
-    try {
-        const hullGeo = new ConvexGeometry(pts);
-        const hullMat = new MeshStandardMaterial({
-            color: 0xffff00,
-            transparent: true,
-            opacity: params.showHulls ? 0.2 : 0, // Respect param
-            depthWrite: false,
-            wireframe: params.showHulls
-        });
-        const hullMesh = new Mesh(hullGeo, hullMat);
-        hullMesh.name = `hull_${root.name}`;
-        hullMesh.visible = params.showHulls; // Respect param
-        hullMesh.userData.isHull = true;
-
-        // Use non-enumerable property to avoid circular reference errors during cloning/serialization
-        Object.defineProperty(hullMesh.userData, 'sourceMesh', {
-            value: root,
-            enumerable: false,
-            writable: true,
-            configurable: true
-        });
-
-        return hullMesh;
-    } catch (e) {
-        console.warn(`[GlbProcessor] ConvexHull construction failed for ${root.name}:`, e);
-        return null;
-    }
+    return sprite;
 }
 
 function runMaterialPass(model, modelInfo, config) {

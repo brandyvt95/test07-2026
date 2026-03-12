@@ -50,6 +50,7 @@
         },
         "exhausts": {
             "swapLogic": "full_replacement",
+            "multiSelect": true,
             "dummyPattern": "ongxa_goc_*_dummy*",
             "options": [
                 {

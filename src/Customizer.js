@@ -4,8 +4,8 @@ import { Vector3, Quaternion, Layers, InstancedMesh, Matrix4 } from 'three';
 export class Customizer {
     constructor() {
         this.config = null;
-        this.activeParts = new Map(); // category -> optionId
-        this.instancedMeshes = new Map(); // category -> InstancedMesh
+        this.activeParts = new Map(); // category -> Set<optionId> or optionId
+        this.instancedMeshes = new Map(); // key -> InstancedMesh[]
     }
 
     async init() {
@@ -21,6 +21,25 @@ export class Customizer {
         const catConfig = state.boothConfig.customization[category];
         if (!catConfig) return;
 
+        const isMulti = !!catConfig.multiSelect;
+
+        // 0. Toggle Logic Check
+        if (isMulti) {
+            let activeSet = this.activeParts.get(category);
+            if (!(activeSet instanceof Set)) {
+                activeSet = new Set();
+                this.activeParts.set(category, activeSet);
+            }
+            if (activeSet.has(optionId)) {
+                // TOGGLE OFF
+                console.log(`[Customizer] Toggle OFF detected for ${optionId}`);
+                this._removeSpecificPart(category, optionId);
+                activeSet.delete(optionId);
+                if (state.ptManager) state.ptManager.reset();
+                return;
+            }
+        }
+
         // 1. Identify Incoming (Selected) Mesh (Original)
         const incomingOption = catConfig.options.find(o => o.id === optionId);
         let incomingMesh = null;
@@ -35,27 +54,14 @@ export class Customizer {
         console.log(`[Customizer] applyPart: category=${category}, incoming=${incomingMesh.name}`);
 
         // 2. Identify and handle Outgoing part
-        const previousOptionId = this.activeParts.get(category);
-
-        if (previousOptionId) {
-            // A previous custom option was active. Return it to its booth slot.
-            const previousOption = catConfig.options.find(o => o.id === previousOptionId);
-            let prevMesh = null;
-            state.modelCar.traverse(child => {
-                if (child.name === previousOption.meshName && child.userData.initParent) {
-                    prevMesh = child;
-                }
-            });
-
-            if (prevMesh && prevMesh.userData.initParent) {
-                console.log(`[Customizer] Returning previous option "${prevMesh.name}" to booth`);
-                prevMesh.userData.initParent.add(prevMesh);
-                prevMesh.position.copy(prevMesh.userData.initPos);
-                prevMesh.quaternion.copy(prevMesh.userData.initQuat);
-                prevMesh.scale.copy(prevMesh.userData.initScale);
-                prevMesh.visible = true;
-                prevMesh.traverse(c => { if (c.layers) c.layers.set(0); });
+        if (!isMulti) {
+            const previousOptionId = this.activeParts.get(category);
+            if (previousOptionId && previousOptionId !== optionId) {
+                this._removeSpecificPart(category, previousOptionId);
             }
+            this.activeParts.set(category, optionId);
+        } else {
+            this.activeParts.get(category).add(optionId);
         }
 
         // 3. Hide ALL base parts on the car and move ONE to showroom
@@ -126,121 +132,171 @@ export class Customizer {
             return;
         }
 
-        // Logic selection: 
-        // 1. If Exhaust AND multiple dummies with numbered suffix (_1, _2) -> InstancedMesh
-        // 2. Otherwise -> Standard placement (Original + Clones)
+        // Selection Logic: 
+        // 1. If more than 1 dummy -> InstancedMesh (Exhausts/Wheels potentially)
+        // 2. Otherwise -> Move original to dummy
 
-        const hasNumberedSuffix = dummies.some(d => d.name.match(/_dummy_\d+$/i));
-        const useInstanced = isExhaust && (dummies.length > 1 && hasNumberedSuffix);
+        const isMultiPlacement = dummies.length > 1;
 
-        if (useInstanced) {
-            console.log(`[Customizer] Applying InstancedMesh for category "${category}" (numbered dummies)`);
+        if (isMultiPlacement) {
+            console.log(`[Customizer] Applying InstancedMesh(es) for category "${category}" (${dummies.length} dummies)`);
 
-            let geometry = null;
-            let material = null;
-            incomingMesh.traverse(c => {
-                if (c.isMesh && !geometry) {
-                    geometry = c.geometry;
-                    material = c.material.clone();
-                    if (material.metalness !== undefined) {
-                        material.metalness = 1.0;
-                        material.roughness = 0.05;
-                    }
-                }
-            });
+            const instanceKey = `${category}_${optionId}`;
+            let instances = this.instancedMeshes.get(instanceKey);
 
-            if (geometry && material) {
-                const iMesh = new InstancedMesh(geometry, material, dummies.length);
-                iMesh.userData.category = category;
-                iMesh.userData.isCustomPart = true;
+            if (!instances) {
+                instances = [];
+                const isWheel = category === 'wheels';
 
-                state.modelCar.add(iMesh);
-                iMesh.position.set(0, 0, 0);
-                iMesh.quaternion.set(0, 0, 0, 1);
-                iMesh.scale.set(1, 1, 1);
-
-                state.modelCar.updateMatrixWorld(true);
-                const carInv = new Matrix4().copy(state.modelCar.matrixWorld).invert();
-                const mat4 = new Matrix4();
-
-                dummies.forEach((dummy, i) => {
-                    dummy.visible = true;
-                    dummy.updateMatrixWorld(true);
-                    mat4.multiplyMatrices(carInv, dummy.matrixWorld);
-                    iMesh.setMatrixAt(i, mat4);
-                });
-
-                iMesh.instanceMatrix.needsUpdate = true;
-                iMesh.layers.enable(0);
-                iMesh.layers.enable(1);
-
-                state.hudClones.set(`${category}_instanced`, iMesh);
-                incomingMesh.visible = false;
-            }
-        } else {
-            // STANDARD PLACEMENT ENGINE
-            console.log(`[Customizer] Applying Standard Placement for category "${category}"`);
-
-            // A) For exhausts, we might still want to tune material but keep standard cloning
-            if (isExhaust) {
                 incomingMesh.traverse(c => {
-                    if (c.isMesh && c.material) {
-                        if (c.material.metalness !== undefined) {
-                            c.material.metalness = 1.0;
-                            c.material.roughness = 0.05;
+                    if (c.isMesh) {
+                        const geometry = c.geometry;
+                        const material = c.material;
+
+                        if (isWheel && Array.isArray(material) && geometry.groups && geometry.groups.length > 0) {
+                            // Multi-Material Wheel: Create one instance per material group
+                            geometry.groups.forEach((group, gidx) => {
+                                // Create a slim geometry for this group
+                                const groupGeo = geometry.clone();
+                                groupGeo.setDrawRange(group.start, group.count);
+                                
+                                const groupMat = material[group.materialIndex] || material[0];
+                                const iMesh = new InstancedMesh(groupGeo, groupMat, dummies.length);
+                                
+                                iMesh.userData.category = category;
+                                iMesh.userData.optionId = optionId;
+                                state.modelCar.add(iMesh);
+                                instances.push(iMesh);
+                            });
+                        } else {
+                            // Single Material or Exhaust (take first material)
+                            const useMat = Array.isArray(material) ? material[0] : material;
+                            const iMesh = new InstancedMesh(geometry, useMat, dummies.length);
+                            
+                            iMesh.userData.category = category;
+                            iMesh.userData.optionId = optionId;
+                            state.modelCar.add(iMesh);
+                            instances.push(iMesh);
                         }
                     }
                 });
+                this.instancedMeshes.set(instanceKey, instances);
             }
 
-            // B) Move ORIGINAL to first dummy
+            if (instances.length > 0) {
+                const carInv = new Matrix4().copy(state.modelCar.matrixWorld).invert();
+                const mat4 = new Matrix4();
+
+                instances.forEach(iMesh => {
+                    iMesh.visible = true;
+                    dummies.forEach((dummy, idx) => {
+                        dummy.visible = true;
+                        dummy.updateMatrixWorld(true);
+                        mat4.multiplyMatrices(carInv, dummy.matrixWorld);
+                        iMesh.setMatrixAt(idx, mat4);
+                    });
+                    iMesh.instanceMatrix.needsUpdate = true;
+                    iMesh.layers.enable(0);
+                    iMesh.layers.enable(1);
+                });
+            }
+
+            // Original stays in booth, visuals hidden, label shown
+            this._setUsedMode(incomingMesh, true);
+        } else {
+            // SINGLE PLACEMENT: Move ORIGINAL children to dummy
+            console.log(`[Customizer] Moving children for category "${category}" (single-placement)`);
             const firstDummy = dummies[0];
             firstDummy.visible = true;
-            firstDummy.add(incomingMesh);
-
-            incomingMesh.position.set(0, 0, 0);
-            incomingMesh.quaternion.set(0, 0, 0, 1);
-            incomingMesh.scale.set(1, 1, 1);
-            incomingMesh.visible = true;
-
+            
+            const meshesToMove = [];
             incomingMesh.traverse(c => {
-                if (c.layers) {
-                    c.layers.enable(0);
-                    c.layers.enable(1);
-                }
+                if (c.isMesh && !c.userData.isUsedLabel) meshesToMove.push(c);
             });
-            incomingMesh.updateMatrixWorld(true);
+            
+            if (!incomingMesh.userData.movedMeshes) incomingMesh.userData.movedMeshes = [];
+            
+            meshesToMove.forEach(m => {
+                firstDummy.add(m);
+                m.position.set(0, 0, 0);
+                m.quaternion.set(0, 0, 0, 1);
+                m.scale.set(1, 1, 1);
+                m.visible = true;
+                m.traverse(c => { if (c.layers) { c.layers.enable(0); c.layers.enable(1); } });
+                incomingMesh.userData.movedMeshes.push(m);
+            });
 
-            // C) Clone for the rest (if any)
-            for (let i = 1; i < dummies.length; i++) {
-                const dummy = dummies[i];
-                dummy.visible = true;
-                const clone = incomingMesh.clone();
-                const hulls = [];
-                clone.traverse(c => { if (c.userData.isHull) hulls.push(c); });
-                hulls.forEach(h => h.parent.remove(h));
-
-                clone.visible = true;
-                clone.userData.isCustomPart = true;
-                clone.userData.category = category;
-
-                dummy.add(clone);
-                clone.position.set(0, 0, 0);
-                clone.quaternion.set(0, 0, 0, 1);
-                clone.scale.set(1, 1, 1);
-                clone.traverse(c => {
-                    if (c.layers) {
-                        c.layers.enable(0);
-                        c.layers.enable(1);
-                    }
-                });
-                clone.updateMatrixWorld(true);
-                state.hudClones.set(`${category}_${i}`, clone);
-            }
+            // Show "USED" label in booth
+            this._setUsedMode(incomingMesh, true);
         }
 
-        this.activeParts.set(category, optionId);
         if (state.ptManager) state.ptManager.reset();
+    }
+
+    /**
+     * Surgical hide: hide the material only, but keep the object enabled for raycasting via Label
+     */
+    _setUsedMode(product, isUsed) {
+        if (!product) return;
+        console.log(`[Customizer] _setUsedMode: ${product.name}, isUsed=${isUsed}`);
+
+        product.userData.isUsed = isUsed;
+
+        product.traverse(c => {
+            if (c.userData.isUsedLabel) {
+                c.visible = isUsed;
+            } else if (c.isMesh) {
+                // Surgical hide: hide the MESH object, not the material (to avoid affecting Instances)
+                c.visible = !isUsed;
+            }
+        });
+
+        product.visible = true; // Root must stay visible to hold label
+    }
+
+    _removeSpecificPart(category, optionId) {
+        const catConfig = state.boothConfig.customization[category];
+        const option = catConfig.options.find(o => o.id === optionId);
+        if (!option) return;
+
+        let originalMesh = null;
+        state.modelCar.traverse(child => {
+            if (child.name === option.meshName && child.userData.initParent) {
+                originalMesh = child;
+            }
+        });
+
+        if (originalMesh) {
+            // 1. Restore moved meshes (for single-placement)
+            if (originalMesh.userData.movedMeshes) {
+                originalMesh.userData.movedMeshes.forEach(m => {
+                    originalMesh.add(m);
+                    m.position.set(0, 0, 0);
+                    m.quaternion.set(0, 0, 0, 1);
+                    m.scale.set(1, 1, 1);
+                    m.visible = true;
+                });
+                originalMesh.userData.movedMeshes = [];
+            }
+
+            // 2. Restore Original Root to Booth (if it was ever moved)
+            if (originalMesh.userData.initParent) {
+                originalMesh.userData.initParent.add(originalMesh);
+                originalMesh.position.copy(originalMesh.userData.initPos);
+                originalMesh.quaternion.copy(originalMesh.userData.initQuat);
+                originalMesh.scale.copy(originalMesh.userData.initScale);
+            }
+
+            this._setUsedMode(originalMesh, false);
+            originalMesh.visible = true;
+            originalMesh.traverse(c => { if (c.layers) c.layers.set(0); });
+        }
+
+        // Hide Instances
+        const instances = this.instancedMeshes.get(`${category}_${optionId}`);
+        if (instances) {
+            instances.forEach(iMesh => { iMesh.visible = false; });
+        }
     }
 
     /**
@@ -254,28 +310,13 @@ export class Customizer {
         const previousOptionId = this.activeParts.get(category);
         if (!previousOptionId) return;
 
-        const previousOption = catConfig.options.find(o => o.id === previousOptionId);
-        let activeCustomMesh = null;
-        state.modelCar.traverse(child => {
-            if (child.name === previousOption.meshName && child.userData.initParent) {
-                activeCustomMesh = child;
-            }
-        });
+        if (previousOptionId instanceof Set) {
+            [...previousOptionId].forEach(id => this._removeSpecificPart(category, id));
+        } else {
+            this._removeSpecificPart(category, previousOptionId);
+        }
 
         console.log(`[Customizer] applyBasePart: category=${category}`);
-
-        // 1. Remove clones
-        this._removeClones(category);
-
-        // 2. Put Custom Mesh back into its original booth parent
-        if (activeCustomMesh && activeCustomMesh.userData.initParent) {
-            activeCustomMesh.userData.initParent.add(activeCustomMesh);
-            activeCustomMesh.position.copy(activeCustomMesh.userData.initPos);
-            activeCustomMesh.quaternion.copy(activeCustomMesh.userData.initQuat);
-            activeCustomMesh.scale.copy(activeCustomMesh.userData.initScale);
-            activeCustomMesh.visible = true;
-            activeCustomMesh.traverse(c => { if (c.layers) c.layers.set(0); });
-        }
 
         // 3. Restore ALL base pieces
         const basePieces = state.baseParts[category] || [];
