@@ -1,0 +1,842 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <title>VCT — Particle AO (Fixed)</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            background: #000;
+            overflow: hidden;
+            font-family: monospace;
+        }
+
+        #info {
+            position: fixed;
+            top: 10px;
+            left: 10px;
+            color: #aaa;
+            font-size: 11px;
+            line-height: 2.0;
+            pointer-events: none;
+            z-index: 10;
+            background: rgba(0, 0, 0, 0.5);
+            padding: 8px 12px;
+            border-radius: 4px;
+        }
+
+        #info b {
+            color: #fff;
+        }
+
+        #atlasPreview {
+            position: fixed;
+            bottom: 10px;
+            right: 10px;
+            width: 1192px;
+            height: 1192px;
+            border: 1px solid #334;
+            image-rendering: pixelated;
+            display: none;
+        }
+    </style>
+</head>
+
+<body>
+    <div id="info">
+        <b>VCT Debug (Mipmap Fixed)</b><br>
+        <b>[A]</b> atlas preview &nbsp;|&nbsp;
+        <b>[V]</b> voxel cubes &nbsp;|&nbsp;
+        <b>[S]</b> spheres<br>
+        <b>[Space]</b> pause
+    </div>
+    <canvas id="atlasPreview"></canvas>
+
+    <script type="importmap">
+{
+  "imports": {
+    "three": "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js",
+    "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/"
+  }
+}
+</script>
+    <script type="module">
+        import * as THREE from 'three';
+        import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+        import { GUI } from 'three/addons/libs/lil-gui.module.min.js';
+
+        // ─── CONFIG ──────────────────────────────────────────────────────────────
+        const GRID = 32;
+        const N_PART = 22880;
+        const PART_RAD = 0.072;
+        const WORLD = 2.0;
+        const VOXSZ_W = (WORLD * 2.0) / GRID;   // voxel size in world space = 0.0625
+        const VOXSZ_U = 1.0 / GRID;             // voxel size in UVW space
+
+        // Atlas: sprite-sheet of GRID Z-slices, each GRID×GRID pixels
+        const COLS = Math.ceil(Math.sqrt(GRID));
+        const ROWS = Math.ceil(GRID / COLS);
+        const ATLAS_W = COLS * GRID;
+        const ATLAS_H = ROWS * GRID;
+
+        // Slices per sphere in Z direction
+        const RAD_VOX = Math.ceil(PART_RAD / VOXSZ_W);
+        const N_SLICES = RAD_VOX * 2 + 3;
+
+        console.log({ GRID, VOXSZ_W, VOXSZ_U, COLS, ROWS, ATLAS_W, ATLAS_H, RAD_VOX, N_SLICES });
+
+        // ─── RENDERER ────────────────────────────────────────────────────────────
+        const renderer = new THREE.WebGLRenderer({ antialias: true });
+        renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
+        renderer.setSize(innerWidth, innerHeight);
+        renderer.autoClear = false;
+        document.body.appendChild(renderer.domElement);
+        window.addEventListener('resize', () => {
+            renderer.setSize(innerWidth, innerHeight);
+            camera.aspect = innerWidth / innerHeight;
+            camera.updateProjectionMatrix();
+        });
+
+        const camera = new THREE.PerspectiveCamera(60, innerWidth / innerHeight, 0.01, 100);
+        camera.position.set(0, 0.8, 13.2);
+        const controls = new OrbitControls(camera, renderer.domElement);
+        controls.enableDamping = true;
+
+        const scene = new THREE.Scene();
+        scene.background = new THREE.Color(0x060608);
+
+        // ─── PARTICLES ───────────────────────────────────────────────────────────
+        const pPos = new Float32Array(N_PART * 3);
+        const pVel = new Float32Array(N_PART * 3);
+        const pCol = new Float32Array(N_PART * 3);
+        for (let i = 0; i < N_PART; i++) {
+            pPos[i * 3] = (Math.random() * 2 - 1) * WORLD * 0.78;
+            pPos[i * 3 + 1] = (Math.random() * 2 - 1) * WORLD * 0.78;
+            pPos[i * 3 + 2] = (Math.random() * 2 - 1) * WORLD * 0.78;
+            pVel[i * 3] = (Math.random() * 2 - 1) * 0.003;
+            pVel[i * 3 + 1] = (Math.random() * 2 - 1) * 0.003;
+            pVel[i * 3 + 2] = (Math.random() * 2 - 1) * 0.003;
+            const t = i % 3;
+            if (t === 0) { pCol[i * 3] = 1.0; pCol[i * 3 + 1] = 0.4; pCol[i * 3 + 2] = 0.05; }
+            else if (t === 1) { pCol[i * 3] = 0.8; pCol[i * 3 + 1] = 0.1; pCol[i * 3 + 2] = 0.7; }
+            else { pCol[i * 3] = 0.05; pCol[i * 3 + 1] = 0.55; pCol[i * 3 + 2] = 1.0; }
+        }
+
+        // ─── RENDER TARGETS ──────────────────────────────────────────────────────
+        const atlasRT = new THREE.WebGLRenderTarget(ATLAS_W, ATLAS_H, {
+            minFilter: THREE.LinearFilter,
+            magFilter: THREE.LinearFilter,
+            format: THREE.RGBAFormat,
+            type: THREE.FloatType,
+            generateMipmaps: false,
+        });
+
+        const rt3d = new THREE.WebGL3DRenderTarget(GRID, GRID, GRID);
+        rt3d.depthBuffer = false;
+        rt3d.texture.minFilter = THREE.LinearMipmapLinearFilter;
+        rt3d.texture.magFilter = THREE.LinearFilter;
+        rt3d.texture.generateMipmaps = true;
+
+        // ═══════════════════════════════════════════════════════════════════════
+        // PASS 1 — SCATTER particles → 2D atlas
+        // ═══════════════════════════════════════════════════════════════════════
+        const TOTAL_PTS = N_PART * N_SLICES;
+        const aCenArr = new Float32Array(TOTAL_PTS * 3);
+        const aColArr = new Float32Array(TOTAL_PTS * 3);
+        const aSOffArr = new Float32Array(TOTAL_PTS);
+
+        for (let p = 0; p < N_PART; p++) {
+            for (let s = 0; s < N_SLICES; s++) {
+                const idx = p * N_SLICES + s;
+                aCenArr[idx * 3] = pPos[p * 3];
+                aCenArr[idx * 3 + 1] = pPos[p * 3 + 1];
+                aCenArr[idx * 3 + 2] = pPos[p * 3 + 2];
+                aColArr[idx * 3] = pCol[p * 3];
+                aColArr[idx * 3 + 1] = pCol[p * 3 + 1];
+                aColArr[idx * 3 + 2] = pCol[p * 3 + 2];
+                aSOffArr[idx] = s - Math.floor(N_SLICES / 2);
+            }
+        }
+
+        const scatterGeo = new THREE.BufferGeometry();
+        scatterGeo.setAttribute('position', new THREE.BufferAttribute(new Float32Array(TOTAL_PTS * 3), 3));
+        const cenAttr = new THREE.BufferAttribute(aCenArr, 3);
+        cenAttr.setUsage(THREE.DynamicDrawUsage);
+        scatterGeo.setAttribute('aCenter', cenAttr);
+        scatterGeo.setAttribute('aColor', new THREE.BufferAttribute(aColArr, 3));
+        scatterGeo.setAttribute('aSliceOff', new THREE.BufferAttribute(aSOffArr, 1));
+
+        const scatterMat = new THREE.ShaderMaterial({
+            uniforms: {
+                uWorld: { value: WORLD },
+                uGrid: { value: GRID + 0.0 },
+                uCols: { value: COLS + 0.0 },
+                uRows: { value: ROWS + 0.0 },
+                uAtlasW: { value: ATLAS_W + 0.0 },
+                uAtlasH: { value: ATLAS_H + 0.0 },
+                uPartRad: { value: PART_RAD },
+                uDenMul: { value: 1.0 },
+            },
+            vertexShader: `
+    precision highp float;
+    attribute vec3  aCenter;
+    attribute vec3  aColor;
+    attribute float aSliceOff;
+    varying vec3  vColor;
+    varying float vCoverage;
+    uniform float uWorld, uGrid, uCols, uRows, uAtlasW, uAtlasH, uPartRad, uDenMul;
+
+    void main() {
+      float W2 = uWorld * 2.0;
+      float nX = (aCenter.x + uWorld) / W2;
+      float nY = (aCenter.y + uWorld) / W2;
+      float nZ = (aCenter.z + uWorld) / W2;
+
+      float cSlice = floor(clamp(nZ, 0.0001, 0.9999) * uGrid);
+      float mySlice = cSlice + aSliceOff;
+
+      if (mySlice < 0.0 || mySlice >= uGrid) {
+        gl_Position = vec4(9.9, 9.9, 9.9, 1.0);
+        gl_PointSize = 0.0;
+        vColor = vec3(0.0); vCoverage = 0.0;
+        return;
+      }
+
+      float sliceZ = ((mySlice + 0.5) / uGrid) * W2 - uWorld;
+      float dz     = sliceZ - aCenter.z;
+      float r2     = uPartRad * uPartRad - dz * dz;
+
+      if (r2 <= 0.0) {
+        gl_Position = vec4(9.9, 9.9, 9.9, 1.0);
+        gl_PointSize = 0.0;
+        vColor = vec3(0.0); vCoverage = 0.0;
+        return;
+      }
+      float rSlice = sqrt(r2);
+
+      float cellCol = mod(mySlice, uCols);
+      float cellRow = floor(mySlice / uCols);
+
+      float pxX = (cellCol + nX) * uGrid;
+      float pxY = (cellRow + nY) * uGrid;
+
+      gl_Position  = vec4((pxX / uAtlasW) * 2.0 - 1.0,
+                          (pxY / uAtlasH) * 2.0 - 1.0,
+                          0.0, 1.0);
+
+      float rPx    = (rSlice / W2) * uGrid * uDenMul;
+      gl_PointSize = max(1.0, rPx * 2.0);
+
+      vCoverage = rSlice / uPartRad;
+      vColor    = aColor;
+    }
+  `,
+            fragmentShader: `
+    precision highp float;
+    varying vec3  vColor;
+    varying float vCoverage;
+    void main() {
+      if (vCoverage <= 0.0) discard;
+      float d = length(gl_PointCoord - 0.5);
+      if (d > 0.5) discard;
+      float w = (1.0 - smoothstep(0.0, 0.5, d)) * vCoverage;
+      gl_FragColor = vec4(vColor * w, w);
+    }
+  `,
+            transparent: true,
+            blending: THREE.AdditiveBlending,
+            depthTest: false,
+            depthWrite: false,
+        });
+
+        const scatterScene = new THREE.Scene();
+        const scatterCamera = new THREE.OrthographicCamera(-1, 1, 1, -1, 0, 1);
+        scatterScene.add(new THREE.Points(scatterGeo, scatterMat));
+
+        // ═══════════════════════════════════════════════════════════════════════
+        // PASS 2 — Copy atlas slices → 3D texture layer by layer
+        // ═══════════════════════════════════════════════════════════════════════
+        const copyMat = new THREE.ShaderMaterial({
+            uniforms: {
+                uAtlas: { value: atlasRT.texture },
+                uZLayer: { value: 0.0 },
+                uCols: { value: COLS + 0.0 },
+                uRows: { value: ROWS + 0.0 },
+            },
+            vertexShader: `
+    varying vec2 vUv;
+    void main() { vUv = uv; gl_Position = vec4(position, 1.0); }
+  `,
+            fragmentShader: `
+    precision highp float;
+    varying vec2 vUv;
+    uniform sampler2D uAtlas;
+    uniform float uZLayer, uCols, uRows;
+    void main() {
+      float cc = mod(uZLayer, uCols);
+      float rr = floor(uZLayer / uCols);
+      vec2 uv  = (vec2(cc, rr) + vUv) / vec2(uCols, uRows);
+      gl_FragColor = texture2D(uAtlas, uv);
+    }
+  `,
+            depthTest: false, depthWrite: false,
+        });
+        const copyScene = new THREE.Scene();
+        const copyCamera = new THREE.OrthographicCamera(-1, 1, 1, -1, 0, 1);
+        copyScene.add(new THREE.Mesh(new THREE.PlaneGeometry(2, 2), copyMat));
+
+        // ═══════════════════════════════════════════════════════════════════════
+        // PASS 3 — Instanced Spheres + Voxel Cone Tracing   [GLSL3]
+        // ═══════════════════════════════════════════════════════════════════════
+        // ═══════════════════════════════════════════════════════════════════════
+        // PASS 3 — INSTANCED SPHERE IMPOSTORS (Dùng 1 Plane giả lập Sphere)
+        // ═══════════════════════════════════════════════════════════════════════
+
+        // 1. Chỉ dùng 1 mặt phẳng vuông kích thước 2x2 (Tọa độ local từ -1 đến 1)
+        const sGeo = new THREE.PlaneGeometry(2, 2);
+        const iCB = new Float32Array(N_PART * 3);
+        for (let i = 0; i < N_PART; i++) {
+            iCB[i * 3] = pCol[i * 3]; iCB[i * 3 + 1] = pCol[i * 3 + 1]; iCB[i * 3 + 2] = pCol[i * 3 + 2];
+        }
+        sGeo.setAttribute('iColor', new THREE.InstancedBufferAttribute(iCB, 3));
+
+        const sphereMat = new THREE.ShaderMaterial({
+            glslVersion: THREE.GLSL3,
+            depthWrite: true,
+            depthTest: true,
+            transparent: false,
+            uniforms: {
+                uVoxels: { value: rt3d.texture },
+                uWorld: { value: WORLD },
+                uVoxSzU: { value: VOXSZ_U },
+                uLightDir: { value: new THREE.Vector3(1, 2, 1).normalize() },
+                uLightCol: { value: new THREE.Vector3(1.0, 0.92, 0.80) },
+                uAmbient: { value: new THREE.Vector3(0.05, 0.07, 0.15) },
+                uSelfVox: { value: 1.2 },
+                uSteps: { value: 12 },
+                uMaxDist: { value: 0.7 },
+                uOccStr: { value: 1.5 },
+                uIndStr: { value: 2.5 },
+                uShowMode: { value: 0 },
+                // Thêm bán kính hạt vào uniform
+                uPartRad: { value: PART_RAD }
+            },
+            vertexShader: `
+precision highp float;
+
+in vec3 iColor;
+
+out vec3 vColor;
+out vec2 vLocalPos;
+out vec3 vCenter;
+
+uniform float uPartRad;
+uniform float uTime;
+
+
+
+// ----------------- simplex noise -----------------
+vec3 mod289(vec3 x){return x - floor(x*(1.0/289.0))*289.0;}
+vec4 mod289(vec4 x){return x - floor(x*(1.0/289.0))*289.0;}
+vec4 permute(vec4 x){return mod289(((x*34.0)+1.0)*x);}
+vec4 taylorInvSqrt(vec4 r){return 1.79284291400159 - 0.85373472095314*r;}
+
+float snoise(vec3 v){
+    const vec2 C = vec2(1.0/6.0,1.0/3.0);
+    const vec4 D = vec4(0.0,0.5,1.0,2.0);
+
+    vec3 i=floor(v+dot(v,C.yyy));
+    vec3 x0=v-i+dot(i,C.xxx);
+
+    vec3 g=step(x0.yzx,x0.xyz);
+    vec3 l=1.0-g;
+
+    vec3 i1=min(g.xyz,l.zxy);
+    vec3 i2=max(g.xyz,l.zxy);
+
+    vec3 x1=x0-i1+C.xxx;
+    vec3 x2=x0-i2+C.yyy;
+    vec3 x3=x0-D.yyy;
+
+    i=mod289(i);
+    vec4 p=permute(permute(permute(
+    i.z+vec4(0.0,i1.z,i2.z,1.0))
+    +i.y+vec4(0.0,i1.y,i2.y,1.0))
+    +i.x+vec4(0.0,i1.x,i2.x,1.0));
+
+    float n_=0.142857142857;
+    vec3 ns=n_*D.wyz-D.xzx;
+
+    vec4 j=p-49.0*floor(p*ns.z*ns.z);
+
+    vec4 x_=floor(j*ns.z);
+    vec4 y_=floor(j-7.0*x_);
+
+    vec4 x=x_*ns.x+ns.yyyy;
+    vec4 y=y_*ns.x+ns.yyyy;
+
+    vec4 h=1.0-abs(x)-abs(y);
+
+    vec4 b0=vec4(x.xy,y.xy);
+    vec4 b1=vec4(x.zw,y.zw);
+
+    vec4 s0=floor(b0)*2.0+1.0;
+    vec4 s1=floor(b1)*2.0+1.0;
+
+    vec4 sh=-step(h,vec4(0.0));
+
+    vec4 a0=b0.xzyw+s0.xzyw*sh.xxyy;
+    vec4 a1=b1.xzyw+s1.xzyw*sh.zzww;
+
+    vec3 p0=vec3(a0.xy,h.x);
+    vec3 p1=vec3(a0.zw,h.y);
+    vec3 p2=vec3(a1.xy,h.z);
+    vec3 p3=vec3(a1.zw,h.w);
+
+    vec4 norm=taylorInvSqrt(vec4(
+    dot(p0,p0),dot(p1,p1),dot(p2,p2),dot(p3,p3)));
+
+    p0*=norm.x;
+    p1*=norm.y;
+    p2*=norm.z;
+    p3*=norm.w;
+
+    vec4 m=max(0.6-vec4(
+    dot(x0,x0),dot(x1,x1),
+    dot(x2,x2),dot(x3,x3)),0.0);
+
+    m=m*m;
+
+    return 42.0*dot(m*m,vec4(
+    dot(p0,x0),dot(p1,x1),
+    dot(p2,x2),dot(p3,x3)));
+}
+
+
+
+// ----------------- CURL NOISE -----------------
+
+vec3 curlNoise(vec3 p){
+
+    float e = 0.1;
+
+    float nx1 = snoise(p + vec3(e,0.0,0.0));
+    float nx2 = snoise(p - vec3(e,0.0,0.0));
+
+    float ny1 = snoise(p + vec3(0.0,e,0.0));
+    float ny2 = snoise(p - vec3(0.0,e,0.0));
+
+    float nz1 = snoise(p + vec3(0.0,0.0,e));
+    float nz2 = snoise(p - vec3(0.0,0.0,e));
+
+    float x = ny1 - ny2 - (nz1 - nz2);
+    float y = nz1 - nz2 - (nx1 - nx2);
+    float z = nx1 - nx2 - (ny1 - ny2);
+
+    return normalize(vec3(x,y,z));
+}
+
+
+
+void main(){
+
+    vColor = iColor;
+
+    // world center
+    vec4 worldCenter = instanceMatrix * vec4(0.0,0.0,0.0,1.0);
+    vCenter = worldCenter.xyz;
+
+    // billboarding
+    vec3 right = vec3(viewMatrix[0][0],viewMatrix[1][0],viewMatrix[2][0]);
+    vec3 up    = vec3(viewMatrix[0][1],viewMatrix[1][1],viewMatrix[2][1]);
+
+
+
+    // ----------------- CURL DISTORT -----------------
+
+    vec3 curl = curlNoise(worldCenter.xyz * 0.5 + uTime*0.3);
+
+    float curlStrength = 0.85;
+
+    vec3 centerOffset = worldCenter.xyz + curl * curlStrength;
+
+
+
+    // plane vertex
+    vec3 wPos = centerOffset + (right * position.x + up * position.y) * uPartRad;
+
+    vLocalPos = position.xy;
+
+    gl_Position = projectionMatrix * viewMatrix * vec4(wPos ,1.0);
+}
+`,
+            fragmentShader: `
+precision highp float;
+precision highp sampler3D;
+uniform mat4 projectionMatrix;
+in  vec3 vColor;
+in  vec2 vLocalPos;
+in  vec3 vCenter;
+out vec4 fragColor;
+
+uniform sampler3D uVoxels;
+uniform float uWorld, uVoxSzU, uPartRad;
+uniform vec3  uLightDir, uLightCol, uAmbient;
+uniform float uSelfVox, uMaxDist, uOccStr, uIndStr;
+uniform int   uSteps, uShowMode;
+
+// Hàm chuyển đổi World sang UVW
+vec3 w2u(vec3 p) {
+    return p / (uWorld * 2.0) + 0.5;
+}
+
+// Hàm Voxel Cone Tracing nguyên bản của bạn (đã fix Mipmap)
+vec2 coneTrace(vec3 o, vec3 dir) {
+    float occ = 0.0, emi = 0.0;
+    float t = uVoxSzU * uSelfVox;
+
+    for (int i = 0; i < 32; i++) {
+        if (i >= uSteps || t > uMaxDist || occ >= 0.95) break;
+
+        vec3 uvw = o + dir * t;
+        if (any(lessThan(uvw, vec3(0.001))) || any(greaterThan(uvw, vec3(0.999)))) break;
+
+        float diam = 1.0 * t;
+        float mip  = log2(max(diam / uVoxSzU, 1.0));
+        vec4  v    = textureLod(uVoxels, uvw, mip);
+        float a    = clamp(v.a * (1.0 + mip * 1.5), 0.0, 1.0);
+
+        emi += (1.0 - occ) * dot(v.rgb, vec3(0.333)) * a;
+        occ += (1.0 - occ) * a;
+
+        t += max(diam * 0.5, uVoxSzU);
+    }
+    return vec2(occ, emi);
+}
+
+void main() {
+    // 1. TOÁN HỌC HÌNH CẦU (SPHERE MATH)
+    float r2 = dot(vLocalPos, vLocalPos); // x^2 + y^2
+    if (r2 > 1.0) discard; // Xén các góc vuông, chỉ giữ lại hình tròn
+
+    // Tính độ sâu Z của bề mặt hình cầu tại điểm ảnh này
+    float z = sqrt(1.0 - r2); 
+    
+    // Pháp tuyến trong không gian của mặt phẳng (Local Normal)
+    vec3 localNormal = vec3(vLocalPos.x, vLocalPos.y, z);
+
+    // 2. CHUYỂN PHÁP TUYẾN SANG WORLD SPACE
+    // Nhân với ma trận View đảo ngược để lấy Normal chuẩn thế giới
+    mat3 invView = mat3(inverse(viewMatrix));
+    vec3 vNormal = normalize(invView * localNormal);
+
+    // 3. TÍNH LẠI WORLD POSITION CỦA BỀ MẶT HÌNH CẦU
+    vec3 vWorldPos = vCenter + vNormal * uPartRad;
+
+    // 4. CHỈNH SỬA CHIỀU SÂU (DEPTH) ĐỂ CÁC HẠT CHE NHAU CHUẨN XÁC
+    vec4 clipPos = projectionMatrix * viewMatrix * vec4(vWorldPos, 1.0);
+    gl_FragDepth = (clipPos.z / clipPos.w) * 0.5 + 0.5;
+
+    // --- TỪ ĐÂY TRỞ XUỐNG LÀ CODE ĐỔ BÓNG VCT Y HỆT TRƯỚC ---
+    vec3 originUVW = w2u(vWorldPos) + vNormal * (uVoxSzU * uSelfVox);
+    originUVW = clamp(originUVW, 0.001, 0.999);
+
+    if (uShowMode == 3) {
+        vec4 raw = texture(uVoxels, w2u(vWorldPos));
+        fragColor = vec4(raw.rgb + vec3(raw.a * 0.5), 1.0);
+        return;
+    }
+
+    const vec3 DIRS[6] = vec3[6](
+        vec3( 1.0, 0.0, 0.0), vec3(-1.0, 0.0, 0.0),
+        vec3( 0.0, 1.0, 0.0), vec3( 0.0,-1.0, 0.0),
+        vec3( 0.0, 0.0, 1.0), vec3( 0.0, 0.0,-1.0)
+    );
+
+    float totOcc = 0.0, totEmi = 0.0, totW = 0.0;
+    for (int i = 0; i < 6; i++) {
+        float w  = max(0.0, dot(vNormal, DIRS[i])) * 0.5 + 0.5;
+        vec2  ct = coneTrace(originUVW, DIRS[i]);
+        totOcc  += ct.x * w;
+        totEmi  += ct.y * w;
+        totW    += w;
+    }
+    totOcc /= totW;
+    totEmi /= totW;
+
+    float ao    = 1.0 - clamp(totOcc * uOccStr, 0.0, 1.0);
+    float ndotl = max(0.0, dot(vNormal, normalize(uLightDir)));
+
+    vec3 direct   = uLightCol * ndotl;
+    vec3 indirect = vColor * totEmi * uIndStr;
+    vec3 result   = vColor * (direct * ao + uAmbient * ao) + indirect;
+
+    if (uShowMode == 1) result = vec3(ao);
+    if (uShowMode == 2) result = vec3(totEmi * 5.0);
+
+    result = pow(max(result, vec3(0.0)), vec3(1.0 / 2.2));
+    fragColor = vec4(result, 1.0);
+}
+`,
+        });
+
+        const sphereMesh = new THREE.InstancedMesh(sGeo, sphereMat, N_PART);
+        sphereMesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
+        scene.add(sphereMesh);
+
+        scene.add(new THREE.Box3Helper(
+            new THREE.Box3(new THREE.Vector3(-WORLD, -WORLD, -WORLD),
+                new THREE.Vector3(WORLD, WORLD, WORLD)),
+            new THREE.Color(0x1a2535)
+        ));
+
+        // ═══════════════════════════════════════════════════════════════════════
+        // DEBUG CUBES
+        // ═══════════════════════════════════════════════════════════════════════
+        const CUBE_N = GRID * GRID * GRID;
+        const cGeo = new THREE.BoxGeometry(VOXSZ_W * 0.88, VOXSZ_W * 0.88, VOXSZ_W * 0.88);
+        const uvwA = new Float32Array(CUBE_N * 3);
+        const cPosA = new Float32Array(CUBE_N * 3);
+        let ci = 0;
+        for (let z = 0; z < GRID; z++)
+            for (let y = 0; y < GRID; y++)
+                for (let x = 0; x < GRID; x++, ci++) {
+                    uvwA[ci * 3] = (x + 0.5) / GRID;
+                    uvwA[ci * 3 + 1] = (y + 0.5) / GRID;
+                    uvwA[ci * 3 + 2] = (z + 0.5) / GRID;
+                    cPosA[ci * 3] = (uvwA[ci * 3] - 0.5) * WORLD * 2;
+                    cPosA[ci * 3 + 1] = (uvwA[ci * 3 + 1] - 0.5) * WORLD * 2;
+                    cPosA[ci * 3 + 2] = (uvwA[ci * 3 + 2] - 0.5) * WORLD * 2;
+                }
+        cGeo.setAttribute('aUVW', new THREE.InstancedBufferAttribute(uvwA, 3));
+
+        const cubeMat = new THREE.ShaderMaterial({
+            glslVersion: THREE.GLSL3,
+            uniforms: {
+                uVoxels: { value: rt3d.texture },
+                uThreshold: { value: 0.04 },
+                uBright: { value: 5.0 },
+                uColorMode: { value: 0 },
+            },
+            vertexShader: `
+    precision highp float;
+    in  vec3 aUVW;
+    out vec3 vUVW, vNrm;
+    void main() {
+      vUVW = aUVW;
+      vNrm = normalize(mat3(instanceMatrix) * normal);
+      gl_Position = projectionMatrix * viewMatrix * instanceMatrix * vec4(position, 1.0);
+    }
+  `,
+            fragmentShader: `
+    precision highp float;
+    precision highp sampler3D;
+    in  vec3 vUVW, vNrm;
+    out vec4 fragColor;
+    uniform sampler3D uVoxels;
+    uniform float uThreshold, uBright;
+    uniform int   uColorMode;
+    void main() {
+      vec4  v = texture(uVoxels, vUVW);
+      if (v.a < uThreshold) discard;
+      vec3 col = (uColorMode == 0) ? v.rgb
+               : (uColorMode == 1) ? vec3(v.a)
+               :                     vec3(1.0);
+      if (dot(col, col) < 0.001) col = vec3(0.3, 0.35, 0.5);
+      float lt = abs(dot(vNrm, normalize(vec3(1,2,1)))) * 0.5 + 0.5;
+      col *= clamp(v.a * uBright, 0.0, 1.0) * lt;
+      fragColor = vec4(col, clamp(v.a * 6.0, 0.1, 1.0));
+    }
+  `,
+            transparent: true, depthWrite: false,
+        });
+
+        const debugCubes = new THREE.InstancedMesh(cGeo, cubeMat, CUBE_N);
+        debugCubes.instanceMatrix.setUsage(THREE.StaticDrawUsage);
+        const dO = new THREE.Object3D();
+        for (let i = 0; i < CUBE_N; i++) {
+            dO.position.set(cPosA[i * 3], cPosA[i * 3 + 1], cPosA[i * 3 + 2]);
+            dO.updateMatrix();
+            debugCubes.setMatrixAt(i, dO.matrix);
+        }
+        debugCubes.instanceMatrix.needsUpdate = true;
+        debugCubes.visible = true;
+        scene.add(debugCubes);
+
+        // ═══════════════════════════════════════════════════════════════════════
+        // GUI
+        // ═══════════════════════════════════════════════════════════════════════
+        const P = {
+            paused: false, speed: 0.003,
+            denMul: 1.0,
+            // Updated defaults to fit the fixed logic
+            steps: 7, maxDist: 0.7, selfVox: 1.2, occStr: 1.5, indStr: 2.5,
+            showMode: 'full',
+            spheresOn: true, cubesOn: false,
+            threshold: 0.04, bright: 5.0, colorMode: 'emission',
+            bgColor: '#060608',
+        };
+
+        const gui = new GUI({ title: 'VCT Controls', width: 270 });
+
+        const fSim = gui.addFolder('🔵 Simulation');
+        fSim.add(P, 'paused').name('Pause [Space]');
+        fSim.add(P, 'speed', 0, 0.012, 0.0001).name('Speed');
+        fSim.open();
+
+        const fVox = gui.addFolder('🟠 Voxelization');
+        fVox.add(P, 'denMul', 0.1, 4.0, 0.05).name('Radius Scale')
+            .onChange(v => scatterMat.uniforms.uDenMul.value = v);
+        fVox.open();
+
+        const fCone = gui.addFolder('🟢 Cone Tracing');
+        fCone.add(P, 'steps', 1, 32, 1).name('Steps per cone')
+            .onChange(v => sphereMat.uniforms.uSteps.value = v);
+        fCone.add(P, 'maxDist', 0.01, 1.0, 0.01).name('Max dist (UVW)')
+            .onChange(v => sphereMat.uniforms.uMaxDist.value = v);
+        fCone.add(P, 'selfVox', 0.5, 8.0, 0.1).name('Self offset (voxels)')
+            .onChange(v => sphereMat.uniforms.uSelfVox.value = v);
+        fCone.add(P, 'occStr', 0, 5, 0.01).name('AO strength')
+            .onChange(v => sphereMat.uniforms.uOccStr.value = v);
+        fCone.add(P, 'indStr', 0, 8, 0.01).name('Indirect strength')
+            .onChange(v => sphereMat.uniforms.uIndStr.value = v);
+        fCone.open();
+
+        const fRender = gui.addFolder('🔴 Render');
+        fRender.add(P, 'showMode', ['full', 'AO only', 'emission only', 'raw voxel']).name('Show Mode')
+            .onChange(v => sphereMat.uniforms.uShowMode.value =
+                ['full', 'AO only', 'emission only', 'raw voxel'].indexOf(v));
+        fRender.add(P, 'spheresOn').name('Spheres [S]')
+            .onChange(v => sphereMesh.visible = v);
+        fRender.open();
+
+        const fDebug = gui.addFolder('🟣 Debug Voxels');
+        // Switched debug cubes off by default to see the spheres better
+        fDebug.add(P, 'cubesOn').name('Show Cubes [V]')
+            .onChange(v => debugCubes.visible = v);
+        fDebug.add(P, 'threshold', 0.001, 0.5, 0.001).name('Threshold')
+            .onChange(v => cubeMat.uniforms.uThreshold.value = v);
+        fDebug.add(P, 'bright', 0.5, 15, 0.1).name('Brightness')
+            .onChange(v => cubeMat.uniforms.uBright.value = v);
+        fDebug.add(P, 'colorMode', ['emission', 'density', 'white']).name('Color')
+            .onChange(v => cubeMat.uniforms.uColorMode.value =
+                ['emission', 'density', 'white'].indexOf(v));
+        fDebug.open();
+
+        const fScene = gui.addFolder('⚙️ Scene');
+        fScene.addColor(P, 'bgColor').name('Background')
+            .onChange(v => scene.background.set(v));
+
+        window.addEventListener('keydown', e => {
+            const rc = gui.controllersRecursive();
+            if (e.key === ' ') { P.paused = !P.paused; rc.find(c => c.property === 'paused')?.updateDisplay(); }
+            if (e.key === 'v' || e.key === 'V') { P.cubesOn = !P.cubesOn; debugCubes.visible = P.cubesOn; rc.find(c => c.property === 'cubesOn')?.updateDisplay(); }
+            if (e.key === 's' || e.key === 'S') { P.spheresOn = !P.spheresOn; sphereMesh.visible = P.spheresOn; rc.find(c => c.property === 'spheresOn')?.updateDisplay(); }
+            if (e.key === 'a' || e.key === 'A') {
+                const c = document.getElementById('atlasPreview');
+                c.style.display = c.style.display === 'none' ? 'block' : 'none';
+            }
+        });
+
+        // ─── ATLAS PREVIEW ───────────────────────────────────────────────────────
+        const pCvs = document.getElementById('atlasPreview');
+        const pCtx = pCvs.getContext('2d');
+        pCvs.width = ATLAS_W; pCvs.height = ATLAS_H;
+        const rBuf = new Float32Array(ATLAS_W * ATLAS_H * 4);
+        function drawAtlasPreview() {
+            if (pCvs.style.display === 'none') return;
+            renderer.readRenderTargetPixels(atlasRT, 0, 0, ATLAS_W, ATLAS_H, rBuf);
+            const img = pCtx.createImageData(ATLAS_W, ATLAS_H);
+            for (let i = 0; i < ATLAS_W * ATLAS_H; i++) {
+                const row = Math.floor(i / ATLAS_W);
+                const col = i % ATLAS_W;
+                const fi = (ATLAS_H - 1 - row) * ATLAS_W + col;
+                img.data[i * 4 + 0] = Math.min(rBuf[fi * 4 + 0] * 255 * 5, 255);
+                img.data[i * 4 + 1] = Math.min(rBuf[fi * 4 + 1] * 255 * 5, 255);
+                img.data[i * 4 + 2] = Math.min(rBuf[fi * 4 + 2] * 255 * 5, 255);
+                img.data[i * 4 + 3] = Math.min(rBuf[fi * 4 + 3] * 255 * 8, 255);
+            }
+            pCtx.putImageData(img, 0, 0);
+        }
+
+        // ═══════════════════════════════════════════════════════════════════════
+        // ANIMATE
+        // ═══════════════════════════════════════════════════════════════════════
+        const dummy = new THREE.Object3D();
+
+        function stepParticles() {
+            if (P.paused) return;
+            for (let p = 0; p < N_PART; p++) {
+                for (let a = 0; a < 3; a++) {
+                    pPos[p * 3 + a] += pVel[p * 3 + a];
+                    const lim = WORLD * 0.87;
+                    if (pPos[p * 3 + a] > lim) { pPos[p * 3 + a] = lim; pVel[p * 3 + a] *= -1; }
+                    if (pPos[p * 3 + a] < -lim) { pPos[p * 3 + a] = -lim; pVel[p * 3 + a] *= -1; }
+                }
+                dummy.position.set(pPos[p * 3], pPos[p * 3 + 1], pPos[p * 3 + 2]);
+                dummy.updateMatrix();
+                sphereMesh.setMatrixAt(p, dummy.matrix);
+
+                for (let s = 0; s < N_SLICES; s++) {
+                    const idx = p * N_SLICES + s;
+                    cenAttr.array[idx * 3] = pPos[p * 3];
+                    cenAttr.array[idx * 3 + 1] = pPos[p * 3 + 1];
+                    cenAttr.array[idx * 3 + 2] = pPos[p * 3 + 2];
+                }
+            }
+            sphereMesh.instanceMatrix.needsUpdate = true;
+            cenAttr.needsUpdate = true;
+        }
+
+        function renderAtlas() {
+            renderer.setRenderTarget(atlasRT);
+            renderer.setClearColor(0x000000, 0);
+            renderer.clear(true, false, false);
+            renderer.render(scatterScene, scatterCamera);
+        }
+
+        function copyTo3D() {
+            for (let z = 0; z < GRID; z++) {
+                copyMat.uniforms.uZLayer.value = z + 0.0;
+                renderer.setRenderTarget(rt3d, z);
+                renderer.clear(true, false, false);
+                renderer.render(copyScene, copyCamera);
+            }
+
+            // FIX: Force WebGL2 to generate Mipmaps correctly after rendering slices
+            const gl = renderer.getContext();
+            const texProps = renderer.properties.get(rt3d.texture);
+            if (texProps && texProps.__webglTexture) {
+                gl.bindTexture(gl.TEXTURE_3D, texProps.__webglTexture);
+                gl.generateMipmap(gl.TEXTURE_3D);
+                gl.bindTexture(gl.TEXTURE_3D, null);
+                // Reset Three.js internal state to prevent conflicts
+                renderer.state.reset();
+            }
+        }
+
+        // Tắt khối lập phương lúc ban đầu để dễ nhìn hạt hơn
+        debugCubes.visible = false;
+
+        renderer.setAnimationLoop(() => {
+            controls.update();
+            stepParticles();
+            renderAtlas();
+            copyTo3D();
+            drawAtlasPreview();
+
+            renderer.setRenderTarget(null);
+            renderer.setClearColor(P.bgColor, 1);
+            renderer.clear(true, true, true);
+            renderer.render(scene, camera);
+        });
+    </script>
+</body>
+
+</html>
