@@ -141,24 +141,31 @@ export class BillboardHUD {
 
         let targetCamName = 'camera_main';
 
-        // 1. Dynamic ID lookup based on current booth
-        let boothId = null;
-        if (state.controls && state.controls.currentCameraName) {
-            const match = state.controls.currentCameraName.match(/\d+$/);
-            if (match) {
-                boothId = match[0];
-                targetCamName = `camera_sanpham_${boothId}`;
-                console.log(`[BillboardHUD] Booth ${boothId} detected. Using: ${targetCamName}`);
+        // 1. Dynamic ID lookup based on current booth config
+        if (state.boothConfig && state.controls?.currentCameraName) {
+            const currentBooth = state.boothConfig.booths.find(b => b.boothCamera === state.controls.currentCameraName);
+            if (currentBooth && currentBooth.modelCamera) {
+                targetCamName = currentBooth.modelCamera;
+                console.log(`[BillboardHUD] Config balance sync: ${targetCamName}`);
+            } else if (state.boothConfig.mainFBOCamera) {
+                targetCamName = state.boothConfig.mainFBOCamera;
+                console.log(`[BillboardHUD] Defaulting to Main FBO Cam: ${targetCamName}`);
             }
         }
 
         // 2. CONTEXT AWARE VISIBILITY: 
         // Hide MODEL_CAR from Main Scene (Layer 0), Show in HUD (Layer 1)
-        if (state.modelCarObj) {
-            state.modelCarObj.traverse(c => {
+        const car = state.modelCar;
+        if (car) {
+            car.traverse(c => {
                 if (c.layers) {
-                    c.layers.disable(0); // Hide from main camera
-                    c.layers.enable(1);  // Show to HUD camera
+                    // Only show to HUD camera (Layer 1) if it's actually visible on the car
+                    // Avoid showing hidden base parts or booth items
+                    if (c.visible && !c.name.includes('bound') && !c.name.includes('point')) {
+                        c.layers.enable(1);
+                    } else {
+                        c.layers.disable(1);
+                    }
                 }
             });
         }
@@ -199,6 +206,7 @@ export class BillboardHUD {
         if (state.modelCarObj) {
             state.modelCarObj.traverse(c => {
                 if (c.layers) {
+                    // Restore main view
                     c.layers.enable(0);
                     c.layers.disable(1);
                 }

@@ -11,7 +11,9 @@ export function buildGui() {
 
     state.gui = new GUI();
 
-    // No model selection since we only have one model
+    const debugFolder = state.gui.addFolder('Debug Controls');
+    debugFolder.add(params, 'showHulls').name('Show Hitboxes').onChange(onParamsChange);
+    debugFolder.close();
 
 
 

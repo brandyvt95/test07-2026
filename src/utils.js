@@ -96,6 +96,19 @@ export function onParamsChange() {
         renderer.setClearAlpha(0);
     }
 
+    // Toggle Hulls
+    if (state.modelCar) {
+        state.modelCar.traverse(child => {
+            if (child.userData.isHull) {
+                child.visible = params.showHulls;
+                if (child.material) {
+                    child.material.opacity = params.showHulls ? 0.2 : 0;
+                    child.material.wireframe = params.showHulls;
+                }
+            }
+        });
+    }
+
     ptManager.updateMaterials();
     ptManager.updateEnvironment();
 }

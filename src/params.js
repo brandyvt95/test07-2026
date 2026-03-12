@@ -29,6 +29,7 @@ export const params = {
     backgroundBlur: 0.0,
     transparentBackground: false,
     checkerboardTransparency: true,
+    showHulls: false,
 
     enable: false,
     bounces: 5,

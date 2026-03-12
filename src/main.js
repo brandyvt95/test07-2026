@@ -31,6 +31,7 @@ import { onResize, updateCameraProjection, updateEnvMap } from './utils.js';
 import { processGlb } from './GlbProcessor.js';
 import { RenderManager } from './RenderManager.js';
 import { PerformanceMonitor } from './PerformanceMonitor.js';
+import { customizer } from './Customizer.js';
 import './renderStyles.css';
 
 import { Logger } from './Logger.js';
@@ -109,7 +110,10 @@ async function init() {
     state.controls = new Controls(state.perspectiveCamera, state.renderer.domElement);
     state.billboard = new BillboardHUD(state.perspectiveCamera);
     state.ray = new RayInteraction(state.perspectiveCamera, state.renderer.domElement);
+    await state.ray.init();
     state.nav = new NavigationUI();
+
+    await customizer.init();
 
 
 

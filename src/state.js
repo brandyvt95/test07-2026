@@ -20,4 +20,9 @@ export const state = {
     originalMaterials: new Map(), // Map<productId, Map<childUuid, material>> — saved before colour change
     activeProductId: null,
     nav: null,
+    boothConfig: null,
+    hoveredObject: null,
+    currentBoothId: null,
+    showroomSlots: {}, // Store world transforms for showroom booths
+    baseParts: {},     // Store original car parts by category: Map<category, Mesh[]>
 };

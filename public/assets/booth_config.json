@@ -1,0 +1,66 @@
+{
+    "booths": [
+        {
+            "id": "banhxe",
+            "clickPattern": "bound_gianhang_banhxe",
+            "boothCamera": "camera_gianhang_banhxe",
+            "modelCamera": "camerafbo_banhxe",
+            "productPattern": "banhxe_mau_*"
+        },
+        {
+            "id": "ongxa",
+            "clickPattern": "bound_gianhang_ongxa",
+            "boothCamera": "camera_gianhang_ongxa",
+            "modelCamera": "camerafbo_ongxa",
+            "productPattern": "ongxa_mau_*"
+        },
+        {
+            "id": "guongchieuhau",
+            "clickPattern": "bound_gianhang_guongchieuhau",
+            "boothCamera": "camera_gianhang_guongchieuhau",
+            "modelCamera": "camerafbo_guongchieuhau",
+            "productPattern": "guong_mau_*"
+        },
+        {
+            "id": "cangio",
+            "clickPattern": "bound_gianhang_cangio",
+            "boothCamera": "camera_gianhang_cangio",
+            "modelCamera": "camerafbo_cangio",
+            "productPattern": "cangio_mau_*"
+        }
+    ],
+    "mainFBOCamera": "camerafbo_main",
+    "customization": {
+        "wheels": {
+            "dummyPattern": "banhxe_goc_*_dummy",
+            "options": [
+                {
+                    "id": "type1",
+                    "meshName": "banhxe_mau_1"
+                },
+                {
+                    "id": "type2",
+                    "meshName": "banhxe_mau_2"
+                },
+                {
+                    "id": "type3",
+                    "meshName": "banhxe_mau_3"
+                }
+            ]
+        },
+        "exhausts": {
+            "swapLogic": "full_replacement",
+            "dummyPattern": "ongxa_goc_*_dummy*",
+            "options": [
+                {
+                    "id": "type1",
+                    "meshName": "ongxa_mau_1"
+                },
+                {
+                    "id": "type2",
+                    "meshName": "ongxa_mau_2"
+                }
+            ]
+        }
+    }
+}

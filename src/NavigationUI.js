@@ -10,14 +10,18 @@ export class NavigationUI {
         this._initUI();
     }
 
-    // Scan for cameras and identify booth views
+    // Scan for cameras and identify booth views using config
     refresh() {
-        if (!state.modelCar) return;
+        if (!state.modelCar || !state.boothConfig) return;
 
         const cameras = [];
+        const configBooths = state.boothConfig.booths;
+
         state.modelCar.traverse(c => {
             if (c.isCamera) {
-                if (c.name.includes('gianhang')) {
+                // Find if this camera is registered in our booth config
+                const isBooth = configBooths.some(b => b.boothCamera === c.name);
+                if (isBooth) {
                     cameras.push(c);
                 } else if (c.name.toLowerCase().includes('main')) {
                     this.mainCameraObj = c;
@@ -25,14 +29,14 @@ export class NavigationUI {
             }
         });
 
-        // Sort booths numerically if possible (gianhang_1, gianhang_2...)
+        // Sort based on the order in JSON config
         cameras.sort((a, b) => {
-            const numA = parseInt(a.name.match(/\d+/)?.[0] || 0);
-            const numB = parseInt(b.name.match(/\d+/)?.[0] || 0);
-            return numA - numB;
+            const idxA = configBooths.findIndex(booth => booth.boothCamera === a.name);
+            const idxB = configBooths.findIndex(booth => booth.boothCamera === b.name);
+            return idxA - idxB;
         });
 
-        // Full navigation list: [Main, Booth 1, Booth 2, ...]
+        // Full navigation list: [Main, Booth A, Booth B, ...]
         this.boothCameras = [];
         if (this.mainCameraObj) this.boothCameras.push(this.mainCameraObj);
         this.boothCameras.push(...cameras);
@@ -61,7 +65,7 @@ export class NavigationUI {
         container.id = 'nav-ui';
         container.style.cssText = `
             position: absolute;
-            bottom: 90px;
+            bottom: 40px;
             left: 50%;
             transform: translateX(-50%);
             display: flex;
@@ -73,18 +77,21 @@ export class NavigationUI {
             background: rgba(0, 0, 0, 0.7);
             border: 1px solid rgba(255, 255, 255, 0.3);
             color: white;
-            padding: 10px 20px;
-            border-radius: 25px;
+            padding: 10px 25px;
+            border-radius: 40px;
             cursor: pointer;
             font-family: 'Outfit', sans-serif;
             font-size: 14px;
-            backdrop-filter: blur(5px);
-            transition: all 0.2s ease;
+            font-weight: 600;
+            letter-spacing: 1px;
+            backdrop-filter: blur(10px);
+            transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
             user-select: none;
+            box-shadow: 0 4px 15px rgba(0,0,0,0.3);
         `;
 
         const prevBtn = this._createButton('PREV', btnStyle, () => this.navigate(-1));
-        const exitBtn = this._createButton('EXIT', btnStyle, () => this.exit());
+        const exitBtn = this._createButton('HOME', btnStyle, () => this.exit());
         const nextBtn = this._createButton('NEXT', btnStyle, () => this.navigate(1));
 
         container.appendChild(prevBtn);
@@ -93,10 +100,18 @@ export class NavigationUI {
 
         document.body.appendChild(container);
 
-        // Hover effects
+        // Hover effects logic
         [prevBtn, exitBtn, nextBtn].forEach(btn => {
-            btn.onmouseover = () => btn.style.background = 'rgba(255, 0, 0, 0.8)';
-            btn.onmouseout = () => btn.style.background = 'rgba(0, 0, 0, 0.7)';
+            btn.onmouseover = () => {
+                btn.style.background = 'rgba(255, 255, 255, 0.2)';
+                btn.style.borderColor = 'rgba(255, 255, 255, 0.8)';
+                btn.style.transform = 'translateY(-2px)';
+            };
+            btn.onmouseout = () => {
+                btn.style.background = 'rgba(0, 0, 0, 0.7)';
+                btn.style.borderColor = 'rgba(255, 255, 255, 0.3)';
+                btn.style.transform = 'translateY(0)';
+            };
         });
     }
 
@@ -109,8 +124,8 @@ export class NavigationUI {
     }
 
     navigate(dir) {
-        if (this.boothCameras.length === 0) this.refresh();
-        if (this.boothCameras.length === 0) return;
+        if (this.boothCameras.length <= 1) this.refresh();
+        if (this.boothCameras.length <= 1) return;
 
         this.currentIndex = (this.currentIndex + dir + this.boothCameras.length) % this.boothCameras.length;
         const targetCam = this.boothCameras[this.currentIndex];
@@ -121,6 +136,7 @@ export class NavigationUI {
     exit() {
         if (!this.mainCameraObj) this.refresh();
         if (this.mainCameraObj) {
+            console.log("[Navigation] Exiting to Home View");
             this._moveTo(this.mainCameraObj);
         }
     }
@@ -130,24 +146,32 @@ export class NavigationUI {
 
         let orbitCenter = new Vector3(0, 0, 0);
 
-        // If it's a booth, try to find a booth bound or car to orbit
-        if (targetCam.name.includes('gianhang')) {
-            // Find corresponding bound mesh for the booth ID
-            const id = targetCam.name.match(/\d+/)?.[0];
-            let boundMesh = null;
-            if (id && state.modelCar) {
+        // Determine orbit center from boothConfig bounds
+        if (state.boothConfig?.booths) {
+            const booth = state.boothConfig.booths.find(b => b.boothCamera === targetCam.name);
+            if (booth && state.modelCar) {
+                let boundMesh = null;
                 state.modelCar.traverse(c => {
-                    if (c.name === `bound_gianhang_${id}`) boundMesh = c;
+                    if (c.name === booth.clickPattern) boundMesh = c;
                 });
-            }
 
-            if (boundMesh) {
-                const box = new Box3().setFromObject(boundMesh);
-                box.getCenter(orbitCenter);
+                if (boundMesh) {
+                    const box = new Box3().setFromObject(boundMesh);
+                    box.getCenter(orbitCenter);
+                }
             }
         }
 
         state.controls.transitionTo(targetCam, orbitCenter);
+        
+        // Sync boothId for raycaster logic
+        if (state.boothConfig?.booths) {
+            const booth = state.boothConfig.booths.find(b => b.boothCamera === targetCam.name);
+            state.currentBoothId = booth ? booth.id : null;
+            window.DEBUG_BOOTH = state.currentBoothId;
+            console.log(`[Navigation] Sync: Cam="${targetCam.name}" -> BoothID="${state.currentBoothId || 'GLOBAL'}"`);
+        }
+
         this._updateCurrentIndex();
     }
 }
